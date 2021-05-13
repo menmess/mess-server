@@ -1,19 +1,18 @@
 package by.mess.model
 
+import by.mess.model.event.AbstractEvent
+import by.mess.model.event.MessengerEvent
+import by.mess.util.serialization.SerializerModule
+import kotlinx.serialization.encodeToString
+import org.junit.Test
 import java.sql.Timestamp
 import kotlin.test.assertEquals
-import kotlinx.serialization.encodeToString
-
-import org.junit.*
-
-import by.mess.util.serialization.SerializerModule
-import by.mess.model.event.NewMessageEvent
 
 class SerializationTest {
 
     @Test
     fun serializationTest() {
-        val event = NewMessageEvent(
+        val event = MessengerEvent.NewMessageEvent(
             42,
             Message(
                 42,
@@ -27,12 +26,9 @@ class SerializationTest {
 
         val formatter = SerializerModule.formatter
 
-        val encodedValue: String = formatter.encodeToString(event)
-        val decodedValue: NewMessageEvent = formatter.decodeFromString(NewMessageEvent.serializer(), encodedValue)
+        val encodedValue: String = formatter.encodeToString(event as AbstractEvent)
+        val decodedValue: AbstractEvent = formatter.decodeFromString(AbstractEvent.serializer(), encodedValue)
 
-        for (field in decodedValue.javaClass.fields) {
-            assertEquals(field.get(event), field.get(decodedValue))
-        }
+        assertEquals(event, decodedValue)
     }
-
 }

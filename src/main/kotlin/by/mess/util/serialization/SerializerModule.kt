@@ -1,14 +1,21 @@
 package by.mess.util.serialization
 
-import kotlinx.serialization.modules.*
-
-import by.mess.model.event.*
+import by.mess.model.event.AbstractEvent
+import by.mess.model.event.MessengerEvent
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.modules.SerializersModule
+import kotlinx.serialization.modules.polymorphic
+import kotlinx.serialization.modules.subclass
 
 object SerializerModule {
     private val module = SerializersModule {
         polymorphic(AbstractEvent::class) {
-            polymorphic(MessengerEvent::class)
+            subclass(MessengerEvent.NewMessageEvent::class)
+            subclass(MessengerEvent.ChangeMessageStatusEvent::class)
+            subclass(MessengerEvent.IntroductionRequest::class)
+            subclass(MessengerEvent.IntroductionEvent::class)
+            subclass(MessengerEvent.NewChatRequest::class)
+            subclass(MessengerEvent.NewChatEvent::class)
         }
     }
     val formatter: Json

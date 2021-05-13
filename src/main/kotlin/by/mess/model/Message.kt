@@ -1,9 +1,8 @@
 package by.mess.model
 
-import java.sql.Timestamp
-import kotlinx.serialization.Serializable
-
 import by.mess.util.serialization.TimestampSerializer
+import kotlinx.serialization.Serializable
+import java.sql.Timestamp
 
 @Serializable
 data class Message(
