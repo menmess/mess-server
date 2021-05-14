@@ -1,8 +1,7 @@
 package by.mess.model.event
 
-import kotlinx.serialization.Serializable
-
 import by.mess.model.Id
+import kotlinx.serialization.Serializable
 
 @Serializable
 abstract class AbstractEvent {
