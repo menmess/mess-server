@@ -5,8 +5,8 @@ import by.mess.model.Id
 import by.mess.model.User
 
 class RAMStorage : StorageInterface {
-    private var users : HashMap<Id, User> = HashMap()
-    private var chats : HashMap<Id, Chat> = HashMap()
+    private var users: HashMap<Id, User> = HashMap()
+    private var chats: HashMap<Id, Chat> = HashMap()
 
     private fun <Type> getType(id: Id, map: HashMap<Id, Type>): Type {
         return map[id] ?: throw Exception("Type with id=$(id) not found")

@@ -26,7 +26,7 @@ class StorageTest {
         assert(!storage.isUserPresent(42))
 
         assertEquals(user2, storage.getUser(user2.id))
-        assertFails { storage.getUser(42)  }
+        assertFails { storage.getUser(42) }
 
         storage.getUser(user1.id).online = false
         assert(!storage.getUser(user1.id).online)
