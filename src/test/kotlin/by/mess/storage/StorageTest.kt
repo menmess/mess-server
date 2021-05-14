@@ -2,6 +2,7 @@ package by.mess.storage
 
 import by.mess.model.Id
 import by.mess.model.User
+import by.mess.model.randomId
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
@@ -13,7 +14,7 @@ class StorageTest {
 
     @Test
     fun basicRAMStorageTest() {
-        var storage = RAMStorage()
+        val storage = RAMStorage(randomId())
         val user1 = createDummyUser(123)
         val user2 = createDummyUser(234)
 
