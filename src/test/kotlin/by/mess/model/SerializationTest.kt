@@ -7,6 +7,7 @@ import kotlinx.serialization.encodeToString
 import org.junit.Test
 import java.sql.Timestamp
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class SerializationTest {
 
@@ -15,6 +16,7 @@ class SerializationTest {
         val event = MessengerEvent.NewMessageEvent(
             42,
             Message(
+                randomId(),
                 42,
                 1337,
                 Timestamp(0),
@@ -29,6 +31,9 @@ class SerializationTest {
         val encodedValue: String = formatter.encodeToString(event as AbstractEvent)
         val decodedValue: AbstractEvent = formatter.decodeFromString(AbstractEvent.serializer(), encodedValue)
 
-        assertEquals(event, decodedValue)
+        assertTrue { decodedValue is MessengerEvent.NewMessageEvent }
+        for (field in event.javaClass.fields) {
+            assertEquals(field.get(event), field.get(decodedValue))
+        }
     }
 }
