@@ -1,6 +1,11 @@
 package by.mess.storage
 
-import by.mess.model.*
+import by.mess.model.Chat
+import by.mess.model.Id
+import by.mess.model.Message
+import by.mess.model.MessageStatus
+import by.mess.model.User
+import by.mess.model.randomId
 import org.junit.Test
 import java.sql.Timestamp
 import kotlin.test.assertEquals
