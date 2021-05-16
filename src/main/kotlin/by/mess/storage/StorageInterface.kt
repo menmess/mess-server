@@ -25,4 +25,5 @@ interface StorageInterface {
     fun getMessagesFromChat(chatId: Id): List<Message>
     fun getLastMessageFromChat(chatId: Id): Message
     fun getOnlineUsers(): List<User>
+    fun getChatForUser(userId: Id): Chat
 }

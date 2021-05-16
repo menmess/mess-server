@@ -11,6 +11,7 @@ class RAMStorage(val clientId: Id) : StorageInterface {
     private var users: HashMap<Id, User> = HashMap()
     private var chats: HashMap<Id, Chat> = HashMap()
     private var messages: HashMap<Id, Message> = HashMap()
+    private var userToChat: HashMap<Id, Id> = HashMap()
 
     private fun <Type> getInstanceFromStorage(id: Id, map: HashMap<Id, Type>): Type {
         return map[id] ?: throw NoSuchElementException("Type with id=$(id) not found")
@@ -41,6 +42,8 @@ class RAMStorage(val clientId: Id) : StorageInterface {
 
     override fun addNewChat(chat: Chat) {
         addNewInstanceToStorage(chat.id, chat, chats)
+        val otherId = if (chat.members.first != clientId) chat.members.first else chat.members.second
+        addNewInstanceToStorage(otherId, chat.id, userToChat)
     }
 
     override fun addNewMessage(message: Message) {
@@ -94,5 +97,10 @@ class RAMStorage(val clientId: Id) : StorageInterface {
         return users.values.parallelStream()
             .filter { return@filter it.online }
             .toList()
+    }
+
+    override fun getChatForUser(userId: Id): Chat {
+        val chatId = getInstanceFromStorage(userId, userToChat)
+        return chats[chatId] ?: throw NoSuchElementException("Type with id=$(messageId) not found")
     }
 }
