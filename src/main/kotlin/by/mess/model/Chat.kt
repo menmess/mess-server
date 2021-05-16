@@ -8,6 +8,8 @@ data class Chat(
     val messages: MutableList<Id>,
     val members: Pair<Id, Id>
 ) {
+    constructor(id: Id, members: Pair<Id, Id>) : this(id, mutableListOf(), members)
+
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is Chat) return false

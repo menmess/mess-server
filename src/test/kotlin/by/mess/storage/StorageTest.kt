@@ -11,8 +11,8 @@ class StorageTest {
         return User(id, "Zhora", "", "", true)
     }
 
-    private fun createDummyMessage(id: Id, chatId: Id): Message {
-        return Message(id, randomId(), chatId, Timestamp(123), MessageStatus.DELIVERED, null, "")
+    private fun createDummyMessage(id: Id, userId: Id, chatId: Id): Message {
+        return Message(id, userId, chatId, Timestamp(123), MessageStatus.DELIVERED, null, "")
     }
 
     private fun createDummyStorage(users: List<User>, clientId: Id = randomId()): RAMStorage {
@@ -55,15 +55,16 @@ class StorageTest {
         storage.getUser(users[2].id).online = false
         assertEquals(users.slice(1..1), storage.getOnlineUsers())
 
-        storage.addNewChat(Chat(1, mutableListOf(), Pair(1, 2)))
-        val messages = listOf(createDummyMessage(1, 1), createDummyMessage(2, 1))
+        storage.addNewChat(Chat(1, Pair(storage.clientId, 2)))
+        val messages = listOf(createDummyMessage(1, users[2].id, 1), createDummyMessage(2, users[1].id, 1))
         storage.addNewMessage(messages[0])
         storage.addNewMessage(messages[1])
 
-        assertFails { storage.addNewMessage(createDummyMessage(3, 42)) }
-        assertEquals(messages.sortedBy { it.id }, storage.getMessagesFromChat(1).sortedBy { it.id })
-        assertFails { storage.getMessagesFromChat(42) }
+        assertEquals(messages, storage.getMessagesFromChat(1))
         assertEquals(messages[1], storage.getLastMessageFromChat(1))
+        assertFails { storage.addNewMessage(createDummyMessage(3, 42, 1)) }
+        assertFails { storage.addNewMessage(createDummyMessage(3, users[1].id, 42)) }
+        assertFails { storage.getMessagesFromChat(42) }
     }
 
     @Test
@@ -71,7 +72,7 @@ class StorageTest {
         val users: List<User> = listOf(createDummyUser(123), createDummyUser(234), createDummyUser(111))
         val storage = createDummyStorage(users, 123)
 
-        storage.addNewChat(Chat(1, mutableListOf(), Pair(123, 234)))
+        storage.addNewChat(Chat(1, Pair(123, 234)))
 
         assertEquals(1, storage.getChatForUser(users[1].id).id)
         assertFails { storage.getChatForUser(users[2].id) }
