@@ -1,4 +1,4 @@
-package by.mess.model.event
+package by.mess.event
 
 import by.mess.model.Id
 import kotlinx.serialization.Serializable
