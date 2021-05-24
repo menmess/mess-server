@@ -5,8 +5,8 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class Chat(
     val id: Id,
-    val messages: MutableList<Id>,
-    val members: MutableList<Id>
+    val members: Pair<Id, Id>,
+    val messages: MutableList<Id> = mutableListOf()
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
