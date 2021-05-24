@@ -16,24 +16,26 @@ repositories {
 dependencies {
     implementation(kotlin("stdlib", "1.5.0"))
     testImplementation(kotlin("test-junit"))
+    implementation("org.jetbrains.kotlin:kotlin-reflect:1.5.0")
 
     // Ktor
     val ktor_version = "1.5.4"
     implementation("io.ktor:ktor-websockets:$ktor_version")
+    implementation("io.ktor:ktor-client-cio:$ktor_version")
     implementation("io.ktor:ktor-client-websockets:$ktor_version")
     implementation("io.ktor:ktor-server-core:$ktor_version")
     implementation("io.ktor:ktor-server-cio:$ktor_version")
-    implementation("ch.qos.logback:logback-classic:1.2.3")
 
     // Serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.2.0")
 
     // Logging
-    implementation("org.slf4j:slf4j-log4j12:1.7.29")
+    implementation("ch.qos.logback:logback-classic:1.2.3")
 }
 
 application {
-    mainClass.set("io.ktor.server.cio.EngineMain")
+//    mainClass.set("io.ktor.server.cio.EngineMain")
+    mainClass.set("by.mess.MainKt")
 }
 
 tasks.test {
@@ -42,4 +44,12 @@ tasks.test {
 
 tasks.withType<KotlinCompile>() {
     kotlinOptions.jvmTarget = "1.8"
+}
+
+tasks.jar {
+    manifest {
+        attributes("Main-Class" to "by.mess.MainKt")
+    }
+
+    from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) })
 }

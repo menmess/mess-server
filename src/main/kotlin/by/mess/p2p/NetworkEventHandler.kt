@@ -41,7 +41,7 @@ class NetworkEventHandler(
     }
 
     private suspend fun handlePeerListResponse(event: NetworkEvent.PeerListResponse) {
-        event.peers.forEach { network.addPeer(it) }
+        event.peers.filter { it.id != network.selfId }.forEach { network.addPeer(it) }
     }
 
     private suspend fun handleSendToPeerEvent(event: NetworkEvent.SendToPeerEvent) {

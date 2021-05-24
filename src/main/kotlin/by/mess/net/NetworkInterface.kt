@@ -33,7 +33,7 @@ class NetworkInterface(
         } catch (exc: ClosedReceiveChannelException) {
             close()
         } catch (exc: SerializationException) {
-            close(CloseReason(CloseReason.Codes.PROTOCOL_ERROR, "Unable to parse the message"))
+            close(CloseReason(CloseReason.Codes.CANNOT_ACCEPT, "Unable to parse the message"))
         }
         return null
     }

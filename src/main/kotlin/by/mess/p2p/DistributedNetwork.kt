@@ -10,8 +10,11 @@ import io.ktor.application.Application
 import io.ktor.application.install
 import io.ktor.client.*
 import io.ktor.client.features.websocket.*
+import io.ktor.client.request.*
 import io.ktor.features.origin
 import io.ktor.http.*
+import io.ktor.http.cio.websocket.*
+import io.ktor.request.*
 import io.ktor.routing.routing
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
@@ -61,8 +64,8 @@ class DistributedNetwork(
                 if (findPeer(peer.id) != null) {
                     return@runBlocking
                 }
-                peerListenerScope.launch { addPeer(peer) }
-                delay(300)
+                addPeer(peer)
+                delay(1000)
                 peer.connection!!.sendEvent(NetworkEvent.PeerListRequest(selfId))
             }
         } catch (e: Throwable) {
@@ -74,14 +77,14 @@ class DistributedNetwork(
     private suspend fun handleConnection(session: DefaultWebSocketServerSession) {
         logger.info("Receiving new connection...")
         val host: String = session.call.request.origin.host
-        val port: Int = session.call.request.queryParameters["network-port"]?.toIntOrNull() ?: backendPort
+        val port: Int = session.call.request.queryParameters["network_port"]?.toIntOrNull() ?: backendPort
         val peer = Peer(
             session.call.parameters["peerId"]!!.toLong(),
-            InetSocketAddress.createUnresolved(host, port),
+            InetSocketAddress(host, port),
             NetworkInterface(session)
         )
-        addPeer(peer)
-        logger.info("Connected from ${peer.address}")
+        logger.info("Connected peer id = '${peer.id}' from '${peer.address.address}'")
+        addPeerAndListen(peer)
     }
 
     private suspend fun openConnection(peer: Peer) = withContext(sharedDataContext) {
@@ -93,7 +96,8 @@ class DistributedNetwork(
             method = HttpMethod.Get,
             host = peer.address.hostName,
             port = peer.address.port,
-            path = "/network/$selfId?network-port=$backendPort"
+            path = "/network/$selfId",
+            request = { parameter("network_port", backendPort) }
         ) {
             val connection = NetworkInterface(this)
             peer.connection = connection
@@ -110,9 +114,25 @@ class DistributedNetwork(
         peers.filter { it.online }.distinctBy { it.id }.toList()
     }
 
-    internal suspend fun addPeer(peer: Peer) = withContext(sharedDataContext) {
+    internal suspend fun addPeer(peer: Peer) {
+        peerListenerScope.launch {
+            addPeerAndListen(peer)
+        }
+    }
+
+    private suspend fun addPeerAndListen(peer: Peer) = withContext(sharedDataContext) {
         peerListenerScope.launch {
             try {
+                findPeer(peer.id)?.let {
+                    it.connection?.close(
+                        CloseReason(
+                            CloseReason.Codes.GOING_AWAY,
+                            "Replaced with new connection"
+                        )
+                    )
+                    removePeer(peer.id)
+                }
+
                 peers.add(peer)
                 if (!peer.online) {
                     openConnection(peer)
@@ -121,6 +141,7 @@ class DistributedNetwork(
                 }
             } catch (e: Throwable) {
                 logger.warn("Uncaught exception $e")
+                e.cause?.let { logger.warn("Caused by $it") }
             } finally {
                 eventBus.post(
                     NetworkEvent.ConnectionClosedEvent(peer.id)
