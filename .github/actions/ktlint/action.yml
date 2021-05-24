@@ -1,0 +1,11 @@
+name: 'Kotlin Linter'
+description: 'Run ktlint in your repository'
+inputs:
+  patterns:
+    description: 'A list of patterns to pass along to the ktlint command'
+    default: '**/*.kt'
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  args:
+    - ${{ inputs.patterns }}
