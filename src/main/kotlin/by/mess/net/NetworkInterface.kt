@@ -10,9 +10,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import java.util.concurrent.atomic.AtomicBoolean
 
-class NetworkInterface(
-    private val connection: WebSocketSession
-) {
+class NetworkInterface(private val connection: WebSocketSession) {
     val isAlive: AtomicBoolean = AtomicBoolean(true)
 
     private val formatter = SerializerModule.formatter

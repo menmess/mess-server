@@ -14,7 +14,6 @@ import io.ktor.client.request.*
 import io.ktor.features.origin
 import io.ktor.http.*
 import io.ktor.http.cio.websocket.*
-import io.ktor.request.*
 import io.ktor.routing.routing
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
@@ -34,7 +33,6 @@ class DistributedNetwork(
     private val networkEventHandler: NetworkEventHandler = NetworkEventHandler(this)
     private val eventHandlerScope: CoroutineScope = CoroutineScope(SupervisorJob())
 
-    @ExperimentalCoroutinesApi
     private val sharedDataContext: CoroutineContext = newSingleThreadContext("NetworkEventHandler")
 
     private val peers: MutableList<Peer> = mutableListOf()

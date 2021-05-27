@@ -47,7 +47,6 @@ class NetworkEventHandler(
     private suspend fun handleSendToPeerEvent(event: NetworkEvent.SendToPeerEvent) {
         val peer: Peer? = network.findPeer(event.receiverId)
         if (peer == null || !peer.online) {
-//            network.eventBus.post(NetworkEvent.MessageNotDeliveredEvent())
             return
         }
         try {
