@@ -63,7 +63,8 @@ class DistributedNetwork(
                     return@runBlocking
                 }
                 addPeer(peer)
-                delay(1000)
+                eventBus.events
+                    .first { it is NetworkEvent.ConnectionOpenedEvent && it.producerId == peer.id }
                 peer.connection!!.sendEvent(NetworkEvent.PeerListRequest(selfId))
             }
         } catch (e: Throwable) {
@@ -99,6 +100,7 @@ class DistributedNetwork(
         ) {
             val connection = NetworkInterface(this)
             peer.connection = connection
+            eventBus.post(NetworkEvent.ConnectionOpenedEvent(peer.id))
             connection.broadcastEvents(eventBus)
         }
         logger.info("Connection to peer at ${peer.address} closed")
@@ -135,6 +137,7 @@ class DistributedNetwork(
                 if (!peer.online) {
                     openConnection(peer)
                 } else {
+                    eventBus.post(NetworkEvent.ConnectionOpenedEvent(peer.id))
                     peer.connection!!.broadcastEvents(eventBus)
                 }
             } catch (e: Throwable) {
