@@ -130,7 +130,7 @@ class DistributedNetwork(
                             "Replaced with new connection"
                         )
                     )
-                    removePeer(peer.id)
+                    removeOfflinePeer(peer.id)
                 }
 
                 peers.add(peer)
@@ -151,7 +151,7 @@ class DistributedNetwork(
         }.join()
     }
 
-    internal suspend fun removePeer(peerId: Id) = withContext(sharedDataContext) {
+    internal suspend fun removeOfflinePeer(peerId: Id) = withContext(sharedDataContext) {
         peers.removeIf { !it.online && it.id == peerId }
     }
 
