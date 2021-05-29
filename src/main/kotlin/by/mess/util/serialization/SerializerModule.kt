@@ -1,7 +1,7 @@
 package by.mess.util.serialization
 
-import by.mess.model.event.AbstractEvent
-import by.mess.model.event.MessengerEvent
+import by.mess.event.AbstractEvent
+import by.mess.event.MessengerEvent
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.modules.polymorphic

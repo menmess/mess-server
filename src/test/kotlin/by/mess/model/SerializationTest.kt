@@ -1,7 +1,7 @@
 package by.mess.model
 
-import by.mess.model.event.AbstractEvent
-import by.mess.model.event.MessengerEvent
+import by.mess.event.AbstractEvent
+import by.mess.event.MessengerEvent
 import by.mess.util.serialization.SerializerModule
 import kotlinx.serialization.encodeToString
 import org.junit.Test
