@@ -1,6 +1,7 @@
 package by.mess.model
 
 import kotlinx.serialization.Serializable
+import java.lang.IllegalArgumentException
 
 @Serializable
 data class Chat(
@@ -15,4 +16,10 @@ data class Chat(
     }
 
     override fun hashCode(): Int = id.hashCode()
+
+    fun getOther(id: Id) = when (id) {
+        members.first -> members.second
+        members.second -> members.first
+        else -> throw IllegalArgumentException("One of chat's members must be id ($id)")
+    }
 }

@@ -31,6 +31,8 @@ dependencies {
 
     // Logging
     implementation("ch.qos.logback:logback-classic:1.2.3")
+
+    implementation("io.socket:socket.io-client:1.0.0")
 }
 
 application {
