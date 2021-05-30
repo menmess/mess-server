@@ -55,6 +55,7 @@ class DistributedNetwork(
                     handleConnection(this)
                 }
                 post("/upload/{mediaId}") {
+                    logger.info("Loading file: ${call.parameters["mediaId"]}")
                     handleFileUpload(call)
                 }
             }

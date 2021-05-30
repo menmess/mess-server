@@ -75,12 +75,13 @@ class NetworkEventHandler(
                         "file", InputProvider { file.inputStream().asInput() },
                         Headers.build {
                             append(HttpHeaders.ContentType, ContentType.defaultForFile(file))
+                            append(HttpHeaders.ContentDisposition, "filename=${event.fileId}")
                         }
                     )
                 }
             )
         } catch (cause: Throwable) {
-            logger.debug("Failed to send file to peer ${peer.address}")
+            logger.info("Failed to send file to peer ${peer.address}: $cause")
         }
     }
 
