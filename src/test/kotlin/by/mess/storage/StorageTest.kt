@@ -13,7 +13,7 @@ import kotlin.test.assertFails
 
 class StorageTest {
     private fun createDummyUser(id: Id): User {
-        return User(id, "Zhora", "", "", true)
+        return User(id, "Zhora",  true)
     }
 
     private fun createDummyMessage(id: Id, userId: Id, chatId: Id): Message {

@@ -36,7 +36,6 @@ dependencies {
 }
 
 application {
-//    mainClass.set("io.ktor.server.cio.EngineMain")
     mainClass.set("by.mess.MainKt")
 }
 
@@ -52,6 +51,5 @@ tasks.jar {
     manifest {
         attributes("Main-Class" to "by.mess.MainKt")
     }
-
     from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) })
 }
