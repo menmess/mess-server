@@ -14,7 +14,10 @@ import io.ktor.application.*
 import io.socket.client.IO
 import io.socket.client.Socket
 import io.socket.emitter.Emitter
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.runBlocking
 
@@ -24,14 +27,14 @@ class Controller(clientId: Id, app: Application) {
     private val formatter = SerializerModule.formatter
     private val frontConnection = IO.socket("localhost:8080")
     private val net = DistributedNetwork(clientId, app)
-    private var self: User? = null
+    private lateinit var clientUser: User
+    private val eventHandlerScope = CoroutineScope(SupervisorJob())
+    // tbd: sync
 
     private val connect = Emitter.Listener {
         frontConnection
-            // arg: token: String
-            .on("register_token", registerToken)
-            // arg: username: String
-            .on("register_username", registerUsername)
+            // arg: [username, token]: String[]
+            .on("register", register)
             // arg: message: JSON<model.Message>
             .on("send_message", sendMessage)
             // arg: chatId: Id (of target chat)
@@ -41,7 +44,7 @@ class Controller(clientId: Id, app: Application) {
             // arg: userId: Id
             .on("create_chat", createChat)
 
-        frontConnection.emit("require_token")
+        frontConnection.emit("require_registration")
     }
 
     init {
@@ -49,23 +52,28 @@ class Controller(clientId: Id, app: Application) {
         frontConnection.on(Socket.EVENT_CONNECT, connect)
     }
 
-    private val registerToken = Emitter.Listener {
-        // @aleexf tbd
-        net.connect([0] as String)
-        net.eventBus.events.onEach { event -> when(event) {
-            is MessengerEvent.NewMessageEvent -> handleNewMessageEvent(event)
-            is MessengerEvent.ChangeMessageStatusEvent -> handleChangeMessageStatus(event)
-            is MessengerEvent.IntroductionRequest -> handleIntroductionRequest(event)
-            is MessengerEvent.IntroductionEvent -> handleIntroductionEvent(event)
-            is MessengerEvent.NewChatEvent -> handleNewChatEvent(event)
-            is MessengerEvent.NewChatRequest -> handleNewChatRequest(event)
-            // @aleexf add new user? remove him if he goes offline?
-        } }
-    }
-
-    private val registerUsername = Emitter.Listener {
-        self = User(clientId, it[0] as String, true)
-        // @uuustrica response needed?
+    private val register = Emitter.Listener {
+        clientUser = User(clientId, it[0] as String, true)
+        if (it[1] != "") {
+            try {
+                net.connectToNetwork(it[1] as String)
+            } catch (e: InvalidTokenException) {
+                frontConnection.emit("invalid_token")
+            }
+        }
+        net.eventBus.events.onEach { event ->
+            when (event) {
+                is MessengerEvent.NewMessageEvent -> handleNewMessageEvent(event)
+                is MessengerEvent.ChangeMessageStatusEvent -> handleChangeMessageStatus(event)
+                is MessengerEvent.IntroductionRequest -> handleIntroductionRequest(event)
+                is MessengerEvent.IntroductionEvent -> handleIntroductionEvent(event)
+                is MessengerEvent.NewChatEvent -> handleNewChatEvent(event)
+                is MessengerEvent.NewChatRequest -> handleNewChatRequest(event)
+                is NetworkEvent.ConnectionOpenedEvent -> handleNewUserEvent(event)
+                is NetworkEvent.ConnectionClosedEvent -> handleRemoveUserEvent(event)
+                is NetworkEvent.PeerListResponse -> handlePeerList(event)
+            }
+        }.launchIn(eventHandlerScope)
     }
 
     private val sendMessage = Emitter.Listener {
@@ -96,7 +104,6 @@ class Controller(clientId: Id, app: Application) {
     }
 
     private val changeChat = Emitter.Listener {
-        // tbd: send many messages at once
         for (message in storage.getMessagesFromChat(it[0] as Id)) {
             frontConnection.emit("send_message", formatter.encodeToString(Message.serializer(), message))
         }
@@ -132,7 +139,17 @@ class Controller(clientId: Id, app: Application) {
     }
 
     private fun handleIntroductionRequest(event: MessengerEvent.IntroductionRequest) {
-        // @aleexf ???
+        if (event.userId == storage.clientId) {
+            runBlocking {
+                net.eventBus.post(
+                    NetworkEvent.SendToPeerEvent(
+                        storage.clientId,
+                        event.producerId,
+                        MessengerEvent.IntroductionEvent(storage.clientId, clientUser)
+                    )
+                )
+            }
+        }
     }
 
     private fun handleIntroductionEvent(event: MessengerEvent.IntroductionEvent) {
@@ -150,12 +167,43 @@ class Controller(clientId: Id, app: Application) {
             runBlocking {
                 net.eventBus.post(
                     NetworkEvent.SendToPeerEvent(
-                        storage.clientId, event.producerId,  MessengerEvent.NewChatEvent(storage.clientId, chat)
+                        storage.clientId, event.producerId, MessengerEvent.NewChatEvent(storage.clientId, chat)
                     )
                 )
             }
         } catch (e: NoSuchElementException) {
             // tbd: sync chat creation
+        }
+    }
+
+    private fun handleNewUserEvent(event: NetworkEvent.ConnectionOpenedEvent) {
+        runBlocking {
+            net.eventBus.post(
+                NetworkEvent.SendToPeerEvent(
+                    storage.clientId,
+                    event.producerId,
+                    MessengerEvent.IntroductionRequest(storage.clientId, event.producerId)
+                )
+            )
+        }
+    }
+
+    private fun handleRemoveUserEvent(event: NetworkEvent.ConnectionClosedEvent) {
+        storage.getUser(event.producerId).online = false
+        frontConnection.emit("offline_user", event.producerId)
+    }
+
+    private fun handlePeerList(event: NetworkEvent.PeerListResponse) {
+        for (peer in event.peers) {
+            runBlocking {
+                net.eventBus.post(
+                    NetworkEvent.SendToPeerEvent(
+                        storage.clientId,
+                        peer.id,
+                        MessengerEvent.IntroductionRequest(storage.clientId, peer.id)
+                    )
+                )
+            }
         }
     }
 }
