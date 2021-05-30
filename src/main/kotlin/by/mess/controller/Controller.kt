@@ -23,7 +23,6 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonBuilder
 import java.lang.Exception
 import java.sql.Timestamp
 
@@ -49,6 +48,7 @@ class Controller(clientId: Id, app: Application) {
             .on("read_messages", readMessages)
             // arg: userId: Id
             .on("create_chat", createChat)
+            .on("generate_token", generateToken)
 
         frontConnection.emit("require_registration", storage.clientId)
     }
@@ -141,6 +141,10 @@ class Controller(clientId: Id, app: Application) {
                 )
             }
         }
+    }
+
+    private val generateToken = Emitter.Listener {
+        frontConnection.emit("receive_token", net.getConnectionToken())
     }
 
     private fun handleNewMessageEvent(event: MessengerEvent.NewMessageEvent) {
