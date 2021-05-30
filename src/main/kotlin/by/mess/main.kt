@@ -24,6 +24,7 @@ fun Application.frontendModule() {
             resources("web/mess-client/public/js")
             resources("web/mess-client/public/css")
             resources("web/mess-client/public/uploads")
+            defaultResource("web/mess-client/public/index.html")
         }
     }
 }
