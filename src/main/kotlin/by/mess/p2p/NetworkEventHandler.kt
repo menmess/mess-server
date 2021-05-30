@@ -57,6 +57,6 @@ class NetworkEventHandler(
     }
 
     private suspend fun handleConnectionClosedEvent(event: NetworkEvent.ConnectionClosedEvent) {
-        network.removePeer(event.producerId)
+        network.removeOfflinePeer(event.producerId)
     }
 }

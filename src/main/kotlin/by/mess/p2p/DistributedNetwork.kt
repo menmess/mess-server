@@ -5,6 +5,7 @@ import by.mess.event.NetworkEvent
 import by.mess.model.Id
 import by.mess.net.NetworkInterface
 import by.mess.util.exception.ConnectionFailedException
+import by.mess.util.exception.InvalidTokenException
 import by.mess.util.logging.logger
 import io.ktor.application.Application
 import io.ktor.application.install
@@ -18,6 +19,8 @@ import io.ktor.routing.routing
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.serialization.SerializationException
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import kotlin.coroutines.CoroutineContext
 import io.ktor.client.features.websocket.WebSockets as ClientWebSockets
@@ -56,7 +59,25 @@ class DistributedNetwork(
             .launchIn(eventHandlerScope)
     }
 
-    fun connect(peer: Peer) {
+    fun getConnectionToken(): String {
+        return TokenManager.getToken(
+            Peer(
+                selfId,
+                InetSocketAddress(InetAddress.getLocalHost(), backendPort)
+            )
+        )
+    }
+
+    fun connectToNetwork(token: String) {
+        val peer = try {
+            TokenManager.decodeToken(token)
+        } catch (exc: SerializationException) {
+            throw InvalidTokenException(token)
+        }
+        connectToNetwork(peer)
+    }
+
+    private fun connectToNetwork(peer: Peer) {
         try {
             runBlocking {
                 if (findPeer(peer.id) != null) {
@@ -130,7 +151,7 @@ class DistributedNetwork(
                             "Replaced with new connection"
                         )
                     )
-                    removePeer(peer.id)
+                    removeOfflinePeer(peer.id)
                 }
 
                 peers.add(peer)
@@ -151,7 +172,7 @@ class DistributedNetwork(
         }.join()
     }
 
-    internal suspend fun removePeer(peerId: Id) = withContext(sharedDataContext) {
+    internal suspend fun removeOfflinePeer(peerId: Id) = withContext(sharedDataContext) {
         peers.removeIf { !it.online && it.id == peerId }
     }
 
