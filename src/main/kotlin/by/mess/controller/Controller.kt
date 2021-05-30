@@ -14,63 +14,89 @@ import by.mess.util.exception.ConnectionFailedException
 import by.mess.util.exception.InvalidTokenException
 import by.mess.util.serialization.SerializerModule
 import io.ktor.application.*
-import io.socket.client.IO
-import io.socket.client.Socket
-import io.socket.emitter.Emitter
+import io.ktor.http.cio.websocket.*
+import io.ktor.routing.*
+import io.ktor.websocket.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
 import java.lang.Exception
 import java.sql.Timestamp
 
 @ExperimentalCoroutinesApi
-class Controller(clientId: Id, app: Application) {
+class Controller(val clientId: Id, val app: Application) {
     private val storage = RAMStorage(clientId)
-    private val formatter = SerializerModule.formatter
-    private val frontConnection = IO.socket("localhost:8080")
     private val net = DistributedNetwork(clientId, app)
     private lateinit var clientUser: User
+
+    private val formatter = SerializerModule.formatter
+    private lateinit var frontConnection: WebSocketServerSession
+
     private val eventHandlerScope = CoroutineScope(SupervisorJob())
+    private val frontendSenderScope = CoroutineScope(SupervisorJob())
     // tbd: sync
 
-    private val connect = Emitter.Listener {
-        frontConnection
-            // arg: [username, token]: String[]
-            .on("register", register)
-            // arg: [chatId, text, time]: [Id, String, long]
-            .on("send_message", sendMessage)
-            // arg: chatId: Id (of target chat)
-            .on("change_chat", changeChat)
-            // arg: chatId: Id
-            .on("read_messages", readMessages)
-            // arg: userId: Id
-            .on("create_chat", createChat)
-            // arg: none
-            .on("generate_token", generateToken)
-
-        frontConnection.emit("require_registration", storage.clientId)
-    }
-
     init {
-        frontConnection.connect()
-        frontConnection.on(Socket.EVENT_CONNECT, connect)
+        with(app) {
+            routing {
+                webSocket("/") {
+                    frontConnection = this
+                    send(Frame.Text(JSONObject(
+                        mapOf(
+                            "request" to "require_registration",
+                            "clientId" to clientId
+                        )).toString())
+                    )
+                    for (frame in incoming) {
+                        if (frame.frameType != FrameType.TEXT) {
+                            continue
+                        }
+                        frame as Frame.Text
+                        var json = JSONObject(frame.readText())
+                        when (json.getString("request")) {
+                            "register" -> register(json.getString("username"), json.getString("token"))
+                            "send_message" -> sendMessage(json.getLong("chatId"), json.getString("text"), json.getLong("time"))
+                            "create_chat" -> createChat(json.getLong("userId"))
+                            "change_chat" -> changeChat(json.getLong("chatId"))
+                            "read_messages" -> readMessages(json.getLong("chatId"))
+                            "generate_token" -> generateToken()
+                        }
+                    }
+                }
+            }
+        }
     }
 
-    private val register = Emitter.Listener {
-        clientUser = User(clientId, it[0] as String, true)
-        if (it[1] != "") {
+    private fun register(username: String, token: String) {
+        clientUser = User(clientId, username, true)
+        if (token != "") {
             try {
-                net.connectToNetwork(it[1] as String)
+                net.connectToNetwork(token)
             } catch (e: InvalidTokenException) {
-                frontConnection.emit("invalid_token")
-                return@Listener
+                frontendSenderScope.launch {
+                    frontConnection.send(Frame.Text(JSONObject(
+                        mapOf(
+                            "request" to "invalid_token"
+                        )
+                    ).toString()))
+                }
+                return
             } catch (e: ConnectionFailedException) {
-                frontConnection.emit("error_occurred", "Connection failed")
-                return@Listener
+                frontendSenderScope.launch {
+                    frontConnection.send(Frame.Text(JSONObject(
+                        mapOf(
+                            "request" to "error_occurred",
+                            "message" to "Connection failed"
+                        )
+                    ).toString()))
+                }
+                return
             }
         }
         net.eventBus.events.onEach { event ->
@@ -88,26 +114,32 @@ class Controller(clientId: Id, app: Application) {
                 is NetworkEvent.PeerListResponse -> handlePeerList(event)
             }
         }
-            .catch { cause -> frontConnection.emit("error_occurred", "$cause") }
+            .catch { cause -> frontendSenderScope.launch {
+                frontConnection.send(Frame.Text(JSONObject(
+                    mapOf(
+                        "request" to "error_occurred",
+                        "message" to "$cause"
+                    )
+                ).toString()))
+            } }
             .launchIn(eventHandlerScope)
     }
 
-    private val sendMessage = Emitter.Listener {
+    private fun sendMessage(chatId: Id, text: String, time: Long) {
         val message: Message?
         try {
-            message = Message(
-                randomId(),
-                clientId,
-                it[0] as Id,
-                Timestamp(it[2] as Long),
-                MessageStatus.SENDING,
-                null,
-                it[1] as String
-            )
+            message = Message(randomId(), clientId, chatId, Timestamp(time), MessageStatus.SENDING, null, text)
             storage.addNewMessage(message)
         } catch (e: Exception) {
-            frontConnection.emit("error_occured", "Error creating message")
-            return@Listener
+            frontendSenderScope.launch {
+                frontConnection.send(Frame.Text(JSONObject(
+                    mapOf(
+                        "request" to "error_occurred",
+                        "message" to "Error creating message"
+                    )
+                ).toString()))
+            }
+            return
         }
         runBlocking {
             net.eventBus.post(
@@ -119,28 +151,41 @@ class Controller(clientId: Id, app: Application) {
         }
     }
 
-    private val createChat = Emitter.Listener {
+    private fun createChat(userId: Id) {
         runBlocking {
             net.eventBus.post(
                 NetworkEvent.SendToPeerEvent(
-                    clientId, it[0] as Id,
+                    clientId, userId,
                     MessengerEvent.NewChatRequest(clientId)
                 )
             )
         }
     }
 
-    private val changeChat = Emitter.Listener {
-        for (message in storage.getMessagesFromChat(it[0] as Id)) {
-            frontConnection.emit("receive_message", formatter.encodeToString(Message.serializer(), message))
+    private fun changeChat(chatId: Id) {
+        for (message in storage.getMessagesFromChat(chatId)) {
+            frontendSenderScope.launch {
+                frontConnection.send(Frame.Text(JSONObject(
+                    mapOf(
+                        "request" to "receive_message",
+                        "message" to message
+                    )
+                ).toString()))
+            }
         }
     }
 
-    private val readMessages = Emitter.Listener {
-        val chatId = it[0] as Id
+    private fun readMessages(chatId: Id) {
         if (!storage.isChatPresent(chatId) || !storage.getChat(chatId).isMember(clientId)) {
-            frontConnection.emit("error_occurred", "Wrong chat")
-            return@Listener
+            frontendSenderScope.launch {
+                frontConnection.send(Frame.Text(JSONObject(
+                    mapOf(
+                        "request" to "error_occurred",
+                        "message" to "Wrong chat"
+                    )
+                ).toString()))
+            }
+            return
         }
         runBlocking {
             net.eventBus.post(
@@ -152,15 +197,29 @@ class Controller(clientId: Id, app: Application) {
         }
     }
 
-    private val generateToken = Emitter.Listener {
-        frontConnection.emit("receive_token", net.getConnectionToken())
+    private fun generateToken() {
+        frontendSenderScope.launch {
+            frontConnection.send(Frame.Text(JSONObject(
+                mapOf(
+                    "request" to "receive_token",
+                    "token" to net.getConnectionToken()
+                )
+            ).toString()))
+        }
     }
 
     private fun handleNewMessageEvent(event: MessengerEvent.NewMessageEvent) {
         if (!storage.isMessagePresent(event.message.id)) {
             event.message.status = MessageStatus.DELIVERED
             storage.addNewMessage(event.message)
-            frontConnection.emit("receive_message", formatter.encodeToString(Message.serializer(), event.message))
+            frontendSenderScope.launch {
+                frontConnection.send(Frame.Text(JSONObject(
+                    mapOf(
+                        "request" to "receive_message",
+                        "message" to event.message
+                    )
+                ).toString()))
+            }
             runBlocking {
                 net.eventBus.post(
                     NetworkEvent.SendToPeerEvent(
@@ -200,14 +259,29 @@ class Controller(clientId: Id, app: Application) {
     private fun handleIntroductionEvent(event: MessengerEvent.IntroductionEvent) {
         if (!storage.isUserPresent(event.producerId)) {
             storage.addNewUser(event.user)
-            frontConnection.emit("new_user", formatter.encodeToString(User.serializer(), event.user))
+            frontendSenderScope.launch {
+                frontConnection.send(Frame.Text(JSONObject(
+                    mapOf(
+                        "request" to "new_user",
+                        "user" to event.user
+                    )
+                ).toString()))
+            }
         }
     }
 
     private fun handleNewChatEvent(event: MessengerEvent.NewChatEvent) {
         if (!storage.isChatPresent(event.chat.id)) {
             storage.addNewChat(event.chat)
-            frontConnection.emit("add_chat", event.chat.getOther(storage.clientId), event.chat.id)
+            frontendSenderScope.launch {
+                frontConnection.send(Frame.Text(JSONObject(
+                    mapOf(
+                        "request" to "add_chat",
+                        "memberId" to event.chat.getOther(storage.clientId),
+                        "chatId" to event.chat.id
+                    )
+                ).toString()))
+            }
         } else {
             // tbd: sync chats
         }
@@ -242,7 +316,14 @@ class Controller(clientId: Id, app: Application) {
             for (message in storage.getMessagesFromChat(event.chatId)) {
                 message.status = MessageStatus.READ
             }
-            frontConnection.emit("read_chat", storage.getChat(event.chatId).getOther(storage.clientId))
+            frontendSenderScope.launch {
+                frontConnection.send(Frame.Text(JSONObject(
+                    mapOf(
+                        "request" to "read_chat",
+                        "memberId" to storage.getChat(event.chatId).getOther(storage.clientId)
+                    )
+                ).toString()))
+            }
         }
     }
 
@@ -254,7 +335,15 @@ class Controller(clientId: Id, app: Application) {
             }
             val chat = Chat(chatId, Pair(storage.clientId, event.producerId))
             storage.addNewChat(chat)
-            frontConnection.emit("add_chat", chat.getOther(storage.clientId), chatId)
+            frontendSenderScope.launch {
+                frontConnection.send(Frame.Text(JSONObject(
+                    mapOf(
+                        "request" to "add_chat",
+                        "memberId" to chat.getOther(storage.clientId),
+                        "chatId" to chatId
+                    )
+                ).toString()))
+            }
         }
     }
 
@@ -273,7 +362,14 @@ class Controller(clientId: Id, app: Application) {
     private fun handleRemoveUserEvent(event: NetworkEvent.ConnectionClosedEvent) {
         if (storage.isUserPresent(event.producerId)) {
             storage.getUser(event.producerId).online = false
-            frontConnection.emit("offline_user", event.producerId)
+            frontendSenderScope.launch {
+                frontConnection.send(Frame.Text(JSONObject(
+                    mapOf(
+                        "request" to "offline_user",
+                        "userId" to event.producerId
+                    )
+                ).toString()))
+            }
         }
     }
 
