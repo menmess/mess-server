@@ -38,21 +38,37 @@ class Controller(val clientId: Id, val app: Application) {
 
     private val eventHandlerScope = CoroutineScope(SupervisorJob())
     private val frontendSenderScope = CoroutineScope(SupervisorJob())
-    // tbd: sync
+
+    private fun sendToFront(map: Map<Any, Any>) {
+        frontendSenderScope.launch {
+            frontConnection.send(Frame.Text(JSONObject(map).toString()))
+        }
+    }
+
+    private fun sendErrorToFront(errorMessage: String) {
+        sendToFront(
+            mapOf(
+                "request" to "error_occurred",
+                "message" to errorMessage
+            )
+        )
+    }
+
+    private fun sendToNetwork(receiverId: Id, event: MessengerEvent) {
+        runBlocking {
+            net.eventBus.post(NetworkEvent.SendToPeerEvent(clientId, receiverId, event))
+        }
+    }
 
     init {
         with(app) {
             routing {
                 webSocket("/") {
                     frontConnection = this
-                    send(
-                        Frame.Text(
-                            JSONObject(
-                                mapOf(
-                                    "request" to "require_registration",
-                                    "clientId" to clientId
-                                )
-                            ).toString()
+                    sendToFront(
+                        mapOf(
+                            "request" to "require_registration",
+                            "clientId" to clientId
                         )
                     )
                     for (frame in incoming) {
@@ -63,7 +79,11 @@ class Controller(val clientId: Id, val app: Application) {
                         val json = JSONObject(frame.readText())
                         when (json.getString("request")) {
                             "register" -> register(json.getString("username"), json.getString("token"))
-                            "send_message" -> sendMessage(json.getLong("chatId"), json.getString("text"), json.getLong("time"))
+                            "send_message" -> sendMessage(
+                                json.getLong("chatId"),
+                                json.getString("text"),
+                                json.getLong("time")
+                            )
                             "create_chat" -> createChat(json.getLong("userId"))
                             "change_chat" -> changeChat(json.getLong("chatId"))
                             "read_messages" -> readMessages(json.getLong("chatId"))
@@ -81,31 +101,14 @@ class Controller(val clientId: Id, val app: Application) {
             try {
                 net.connectToNetwork(token)
             } catch (e: InvalidTokenException) {
-                frontendSenderScope.launch {
-                    frontConnection.send(
-                        Frame.Text(
-                            JSONObject(
-                                mapOf(
-                                    "request" to "invalid_token"
-                                )
-                            ).toString()
-                        )
+                sendToFront(
+                    mapOf(
+                        "request" to "invalid_token"
                     )
-                }
+                )
                 return
             } catch (e: ConnectionFailedException) {
-                frontendSenderScope.launch {
-                    frontConnection.send(
-                        Frame.Text(
-                            JSONObject(
-                                mapOf(
-                                    "request" to "error_occurred",
-                                    "message" to "Connection failed"
-                                )
-                            ).toString()
-                        )
-                    )
-                }
+                sendErrorToFront("Connection failed")
                 return
             }
         }
@@ -124,20 +127,7 @@ class Controller(val clientId: Id, val app: Application) {
                 is NetworkEvent.PeerListResponse -> handlePeerList(event)
             }
         }
-            .catch { cause ->
-                frontendSenderScope.launch {
-                    frontConnection.send(
-                        Frame.Text(
-                            JSONObject(
-                                mapOf(
-                                    "request" to "error_occurred",
-                                    "message" to "$cause"
-                                )
-                            ).toString()
-                        )
-                    )
-                }
-            }
+            .catch { cause -> sendErrorToFront("$cause") }
             .launchIn(eventHandlerScope)
     }
 
@@ -147,127 +137,65 @@ class Controller(val clientId: Id, val app: Application) {
             message = Message(randomId(), clientId, chatId, Timestamp(time), MessageStatus.SENDING, null, text)
             storage.addNewMessage(message)
         } catch (e: Exception) {
-            frontendSenderScope.launch {
-                frontConnection.send(
-                    Frame.Text(
-                        JSONObject(
-                            mapOf(
-                                "request" to "error_occurred",
-                                "message" to "Error creating message"
-                            )
-                        ).toString()
-                    )
-                )
-            }
+            sendErrorToFront("Error creating message")
             return
         }
-        runBlocking {
-            net.eventBus.post(
-                NetworkEvent.SendToPeerEvent(
-                    clientId, storage.getChat(message.chatId).getOther(clientId),
-                    MessengerEvent.NewMessageEvent(clientId, message)
-                )
-            )
-        }
+        sendToNetwork(
+            storage.getChat(message.chatId).getOther(clientId),
+            MessengerEvent.NewMessageEvent(clientId, message)
+        )
     }
 
     private fun createChat(userId: Id) {
-        runBlocking {
-            net.eventBus.post(
-                NetworkEvent.SendToPeerEvent(
-                    clientId, userId,
-                    MessengerEvent.NewChatRequest(clientId)
-                )
-            )
-        }
+        sendToNetwork(userId, MessengerEvent.NewChatRequest(clientId))
     }
 
     private fun changeChat(chatId: Id) {
         for (message in storage.getMessagesFromChat(chatId)) {
-            frontendSenderScope.launch {
-                frontConnection.send(
-                    Frame.Text(
-                        JSONObject(
-                            mapOf(
-                                "request" to "receive_message",
-                                "message" to message
-                            )
-                        ).toString()
-                    )
+            sendToFront(
+                mapOf(
+                    "request" to "receive_message",
+                    "message" to message
                 )
-            }
+            )
         }
     }
 
     private fun readMessages(chatId: Id) {
         if (!storage.isChatPresent(chatId) || !storage.getChat(chatId).isMember(clientId)) {
-            frontendSenderScope.launch {
-                frontConnection.send(
-                    Frame.Text(
-                        JSONObject(
-                            mapOf(
-                                "request" to "error_occurred",
-                                "message" to "Wrong chat"
-                            )
-                        ).toString()
-                    )
-                )
-            }
+            sendErrorToFront("Wrong chat")
             return
         }
-        runBlocking {
-            net.eventBus.post(
-                NetworkEvent.SendToPeerEvent(
-                    clientId, storage.getChat(chatId).getOther(clientId),
-                    MessengerEvent.ChatReadEvent(clientId, chatId)
-                )
-            )
-        }
+        sendToNetwork(storage.getChat(chatId).getOther(clientId), MessengerEvent.ChatReadEvent(clientId, chatId))
     }
 
     private fun generateToken() {
-        frontendSenderScope.launch {
-            frontConnection.send(
-                Frame.Text(
-                    JSONObject(
-                        mapOf(
-                            "request" to "receive_token",
-                            "token" to net.getConnectionToken()
-                        )
-                    ).toString()
-                )
+        sendToFront(
+            mapOf(
+                "request" to "receive_token",
+                "token" to net.getConnectionToken()
             )
-        }
+        )
     }
 
     private fun handleNewMessageEvent(event: MessengerEvent.NewMessageEvent) {
         if (!storage.isMessagePresent(event.message.id)) {
             event.message.status = MessageStatus.DELIVERED
             storage.addNewMessage(event.message)
-            frontendSenderScope.launch {
-                frontConnection.send(
-                    Frame.Text(
-                        JSONObject(
-                            mapOf(
-                                "request" to "receive_message",
-                                "message" to event.message
-                            )
-                        ).toString()
-                    )
+            sendToFront(
+                mapOf(
+                    "request" to "receive_message",
+                    "message" to event.message
                 )
-            }
-            runBlocking {
-                net.eventBus.post(
-                    NetworkEvent.SendToPeerEvent(
-                        storage.clientId, event.producerId,
-                        MessengerEvent.ChangeMessageStatusEvent(
-                            storage.clientId,
-                            event.message.id,
-                            MessageStatus.DELIVERED
-                        )
-                    )
+            )
+            sendToNetwork(
+                event.producerId,
+                MessengerEvent.ChangeMessageStatusEvent(
+                    clientId,
+                    event.message.id,
+                    MessageStatus.DELIVERED
                 )
-            }
+            )
         }
     }
 
@@ -279,53 +207,33 @@ class Controller(val clientId: Id, val app: Application) {
     }
 
     private fun handleIntroductionRequest(event: MessengerEvent.IntroductionRequest) {
-        if (event.userId == storage.clientId) {
-            runBlocking {
-                net.eventBus.post(
-                    NetworkEvent.SendToPeerEvent(
-                        storage.clientId,
-                        event.producerId,
-                        MessengerEvent.IntroductionEvent(storage.clientId, clientUser)
-                    )
-                )
-            }
+        if (event.userId == clientId) {
+            sendToNetwork(event.producerId, MessengerEvent.IntroductionEvent(clientId, clientUser))
         }
     }
 
     private fun handleIntroductionEvent(event: MessengerEvent.IntroductionEvent) {
         if (!storage.isUserPresent(event.producerId)) {
             storage.addNewUser(event.user)
-            frontendSenderScope.launch {
-                frontConnection.send(
-                    Frame.Text(
-                        JSONObject(
-                            mapOf(
-                                "request" to "new_user",
-                                "user" to event.user
-                            )
-                        ).toString()
-                    )
+            sendToFront(
+                mapOf(
+                    "request" to "new_user",
+                    "user" to event.user
                 )
-            }
+            )
         }
     }
 
     private fun handleNewChatEvent(event: MessengerEvent.NewChatEvent) {
         if (!storage.isChatPresent(event.chat.id)) {
             storage.addNewChat(event.chat)
-            frontendSenderScope.launch {
-                frontConnection.send(
-                    Frame.Text(
-                        JSONObject(
-                            mapOf(
-                                "request" to "add_chat",
-                                "memberId" to event.chat.getOther(storage.clientId),
-                                "chatId" to event.chat.id
-                            )
-                        ).toString()
-                    )
+            sendToFront(
+                mapOf(
+                    "request" to "add_chat",
+                    "memberId" to event.chat.getOther(clientId),
+                    "chatId" to event.chat.id
                 )
-            }
+            )
         } else {
             // tbd: sync chats
         }
@@ -334,23 +242,9 @@ class Controller(val clientId: Id, val app: Application) {
     private fun handleNewChatRequest(event: MessengerEvent.NewChatRequest) {
         try {
             val chat = storage.getChatForUser(event.producerId)
-            runBlocking {
-                net.eventBus.post(
-                    NetworkEvent.SendToPeerEvent(
-                        storage.clientId, event.producerId, MessengerEvent.NewChatEvent(storage.clientId, chat)
-                    )
-                )
-            }
+            sendToNetwork(event.producerId, MessengerEvent.NewChatEvent(clientId, chat))
         } catch (e: NoSuchElementException) {
-            runBlocking {
-                net.eventBus.post(
-                    NetworkEvent.SendToPeerEvent(
-                        storage.clientId,
-                        event.producerId,
-                        MessengerEvent.NoSuchChatEvent(storage.clientId, event.producerId)
-                    )
-                )
-            }
+            sendToNetwork(event.producerId, MessengerEvent.NoSuchChatEvent(clientId, event.producerId))
             // tbd: sync chats
         }
     }
@@ -360,86 +254,52 @@ class Controller(val clientId: Id, val app: Application) {
             for (message in storage.getMessagesFromChat(event.chatId)) {
                 message.status = MessageStatus.READ
             }
-            frontendSenderScope.launch {
-                frontConnection.send(
-                    Frame.Text(
-                        JSONObject(
-                            mapOf(
-                                "request" to "read_chat",
-                                "memberId" to storage.getChat(event.chatId).getOther(storage.clientId)
-                            )
-                        ).toString()
-                    )
-                )
-            }
-        }
-    }
-
-    private fun handleNoSuchChatEvent(event: MessengerEvent.NoSuchChatEvent) {
-        if (event.memberId == storage.clientId) {
-            var chatId = randomId()
-            while (storage.isChatPresent(chatId)) {
-                chatId = randomId()
-            }
-            val chat = Chat(chatId, Pair(storage.clientId, event.producerId))
-            storage.addNewChat(chat)
-            frontendSenderScope.launch {
-                frontConnection.send(
-                    Frame.Text(
-                        JSONObject(
-                            mapOf(
-                                "request" to "add_chat",
-                                "memberId" to chat.getOther(storage.clientId),
-                                "chatId" to chatId
-                            )
-                        ).toString()
-                    )
-                )
-            }
-        }
-    }
-
-    private fun handleNewUserEvent(event: NetworkEvent.ConnectionOpenedEvent) {
-        runBlocking {
-            net.eventBus.post(
-                NetworkEvent.SendToPeerEvent(
-                    storage.clientId,
-                    event.producerId,
-                    MessengerEvent.IntroductionRequest(storage.clientId, event.producerId)
+            sendToFront(
+                mapOf(
+                    "request" to "read_chat",
+                    "memberId" to storage.getChat(event.chatId).getOther(clientId)
                 )
             )
         }
     }
 
+    private fun handleNoSuchChatEvent(event: MessengerEvent.NoSuchChatEvent) {
+        if (event.memberId == clientId) {
+            var chatId = randomId()
+            while (storage.isChatPresent(chatId)) {
+                chatId = randomId()
+            }
+            val chat = Chat(chatId, clientId to event.producerId)
+            storage.addNewChat(chat)
+            sendToFront(
+                mapOf(
+                    "request" to "add_chat",
+                    "memberId" to chat.getOther(clientId),
+                    "chatId" to chatId
+                )
+            )
+        }
+    }
+
+    private fun handleNewUserEvent(event: NetworkEvent.ConnectionOpenedEvent) {
+        sendToNetwork(event.producerId, MessengerEvent.IntroductionRequest(clientId, event.producerId))
+    }
+
     private fun handleRemoveUserEvent(event: NetworkEvent.ConnectionClosedEvent) {
         if (storage.isUserPresent(event.producerId)) {
             storage.getUser(event.producerId).online = false
-            frontendSenderScope.launch {
-                frontConnection.send(
-                    Frame.Text(
-                        JSONObject(
-                            mapOf(
-                                "request" to "offline_user",
-                                "userId" to event.producerId
-                            )
-                        ).toString()
-                    )
+            sendToFront(
+                mapOf(
+                    "request" to "offline_user",
+                    "userId" to event.producerId
                 )
-            }
+            )
         }
     }
 
     private fun handlePeerList(event: NetworkEvent.PeerListResponse) {
         for (peer in event.peers) {
-            runBlocking {
-                net.eventBus.post(
-                    NetworkEvent.SendToPeerEvent(
-                        storage.clientId,
-                        peer.id,
-                        MessengerEvent.IntroductionRequest(storage.clientId, peer.id)
-                    )
-                )
-            }
+            sendToNetwork(peer.id, MessengerEvent.IntroductionRequest(clientId, peer.id))
         }
     }
 }
