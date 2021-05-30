@@ -12,7 +12,6 @@ import by.mess.p2p.DistributedNetwork
 import by.mess.storage.RAMStorage
 import by.mess.util.exception.ConnectionFailedException
 import by.mess.util.exception.InvalidTokenException
-import by.mess.util.serialization.SerializerModule
 import io.ktor.application.*
 import io.ktor.http.cio.websocket.*
 import io.ktor.routing.*
@@ -35,7 +34,6 @@ class Controller(val clientId: Id, val app: Application) {
     private val net = DistributedNetwork(clientId, app)
     private lateinit var clientUser: User
 
-    private val formatter = SerializerModule.formatter
     private lateinit var frontConnection: WebSocketServerSession
 
     private val eventHandlerScope = CoroutineScope(SupervisorJob())
@@ -47,18 +45,22 @@ class Controller(val clientId: Id, val app: Application) {
             routing {
                 webSocket("/") {
                     frontConnection = this
-                    send(Frame.Text(JSONObject(
-                        mapOf(
-                            "request" to "require_registration",
-                            "clientId" to clientId
-                        )).toString())
+                    send(
+                        Frame.Text(
+                            JSONObject(
+                                mapOf(
+                                    "request" to "require_registration",
+                                    "clientId" to clientId
+                                )
+                            ).toString()
+                        )
                     )
                     for (frame in incoming) {
                         if (frame.frameType != FrameType.TEXT) {
                             continue
                         }
                         frame as Frame.Text
-                        var json = JSONObject(frame.readText())
+                        val json = JSONObject(frame.readText())
                         when (json.getString("request")) {
                             "register" -> register(json.getString("username"), json.getString("token"))
                             "send_message" -> sendMessage(json.getLong("chatId"), json.getString("text"), json.getLong("time"))
@@ -80,21 +82,29 @@ class Controller(val clientId: Id, val app: Application) {
                 net.connectToNetwork(token)
             } catch (e: InvalidTokenException) {
                 frontendSenderScope.launch {
-                    frontConnection.send(Frame.Text(JSONObject(
-                        mapOf(
-                            "request" to "invalid_token"
+                    frontConnection.send(
+                        Frame.Text(
+                            JSONObject(
+                                mapOf(
+                                    "request" to "invalid_token"
+                                )
+                            ).toString()
                         )
-                    ).toString()))
+                    )
                 }
                 return
             } catch (e: ConnectionFailedException) {
                 frontendSenderScope.launch {
-                    frontConnection.send(Frame.Text(JSONObject(
-                        mapOf(
-                            "request" to "error_occurred",
-                            "message" to "Connection failed"
+                    frontConnection.send(
+                        Frame.Text(
+                            JSONObject(
+                                mapOf(
+                                    "request" to "error_occurred",
+                                    "message" to "Connection failed"
+                                )
+                            ).toString()
                         )
-                    ).toString()))
+                    )
                 }
                 return
             }
@@ -114,14 +124,20 @@ class Controller(val clientId: Id, val app: Application) {
                 is NetworkEvent.PeerListResponse -> handlePeerList(event)
             }
         }
-            .catch { cause -> frontendSenderScope.launch {
-                frontConnection.send(Frame.Text(JSONObject(
-                    mapOf(
-                        "request" to "error_occurred",
-                        "message" to "$cause"
+            .catch { cause ->
+                frontendSenderScope.launch {
+                    frontConnection.send(
+                        Frame.Text(
+                            JSONObject(
+                                mapOf(
+                                    "request" to "error_occurred",
+                                    "message" to "$cause"
+                                )
+                            ).toString()
+                        )
                     )
-                ).toString()))
-            } }
+                }
+            }
             .launchIn(eventHandlerScope)
     }
 
@@ -132,12 +148,16 @@ class Controller(val clientId: Id, val app: Application) {
             storage.addNewMessage(message)
         } catch (e: Exception) {
             frontendSenderScope.launch {
-                frontConnection.send(Frame.Text(JSONObject(
-                    mapOf(
-                        "request" to "error_occurred",
-                        "message" to "Error creating message"
+                frontConnection.send(
+                    Frame.Text(
+                        JSONObject(
+                            mapOf(
+                                "request" to "error_occurred",
+                                "message" to "Error creating message"
+                            )
+                        ).toString()
                     )
-                ).toString()))
+                )
             }
             return
         }
@@ -165,12 +185,16 @@ class Controller(val clientId: Id, val app: Application) {
     private fun changeChat(chatId: Id) {
         for (message in storage.getMessagesFromChat(chatId)) {
             frontendSenderScope.launch {
-                frontConnection.send(Frame.Text(JSONObject(
-                    mapOf(
-                        "request" to "receive_message",
-                        "message" to message
+                frontConnection.send(
+                    Frame.Text(
+                        JSONObject(
+                            mapOf(
+                                "request" to "receive_message",
+                                "message" to message
+                            )
+                        ).toString()
                     )
-                ).toString()))
+                )
             }
         }
     }
@@ -178,12 +202,16 @@ class Controller(val clientId: Id, val app: Application) {
     private fun readMessages(chatId: Id) {
         if (!storage.isChatPresent(chatId) || !storage.getChat(chatId).isMember(clientId)) {
             frontendSenderScope.launch {
-                frontConnection.send(Frame.Text(JSONObject(
-                    mapOf(
-                        "request" to "error_occurred",
-                        "message" to "Wrong chat"
+                frontConnection.send(
+                    Frame.Text(
+                        JSONObject(
+                            mapOf(
+                                "request" to "error_occurred",
+                                "message" to "Wrong chat"
+                            )
+                        ).toString()
                     )
-                ).toString()))
+                )
             }
             return
         }
@@ -199,12 +227,16 @@ class Controller(val clientId: Id, val app: Application) {
 
     private fun generateToken() {
         frontendSenderScope.launch {
-            frontConnection.send(Frame.Text(JSONObject(
-                mapOf(
-                    "request" to "receive_token",
-                    "token" to net.getConnectionToken()
+            frontConnection.send(
+                Frame.Text(
+                    JSONObject(
+                        mapOf(
+                            "request" to "receive_token",
+                            "token" to net.getConnectionToken()
+                        )
+                    ).toString()
                 )
-            ).toString()))
+            )
         }
     }
 
@@ -213,12 +245,16 @@ class Controller(val clientId: Id, val app: Application) {
             event.message.status = MessageStatus.DELIVERED
             storage.addNewMessage(event.message)
             frontendSenderScope.launch {
-                frontConnection.send(Frame.Text(JSONObject(
-                    mapOf(
-                        "request" to "receive_message",
-                        "message" to event.message
+                frontConnection.send(
+                    Frame.Text(
+                        JSONObject(
+                            mapOf(
+                                "request" to "receive_message",
+                                "message" to event.message
+                            )
+                        ).toString()
                     )
-                ).toString()))
+                )
             }
             runBlocking {
                 net.eventBus.post(
@@ -260,12 +296,16 @@ class Controller(val clientId: Id, val app: Application) {
         if (!storage.isUserPresent(event.producerId)) {
             storage.addNewUser(event.user)
             frontendSenderScope.launch {
-                frontConnection.send(Frame.Text(JSONObject(
-                    mapOf(
-                        "request" to "new_user",
-                        "user" to event.user
+                frontConnection.send(
+                    Frame.Text(
+                        JSONObject(
+                            mapOf(
+                                "request" to "new_user",
+                                "user" to event.user
+                            )
+                        ).toString()
                     )
-                ).toString()))
+                )
             }
         }
     }
@@ -274,13 +314,17 @@ class Controller(val clientId: Id, val app: Application) {
         if (!storage.isChatPresent(event.chat.id)) {
             storage.addNewChat(event.chat)
             frontendSenderScope.launch {
-                frontConnection.send(Frame.Text(JSONObject(
-                    mapOf(
-                        "request" to "add_chat",
-                        "memberId" to event.chat.getOther(storage.clientId),
-                        "chatId" to event.chat.id
+                frontConnection.send(
+                    Frame.Text(
+                        JSONObject(
+                            mapOf(
+                                "request" to "add_chat",
+                                "memberId" to event.chat.getOther(storage.clientId),
+                                "chatId" to event.chat.id
+                            )
+                        ).toString()
                     )
-                ).toString()))
+                )
             }
         } else {
             // tbd: sync chats
@@ -317,12 +361,16 @@ class Controller(val clientId: Id, val app: Application) {
                 message.status = MessageStatus.READ
             }
             frontendSenderScope.launch {
-                frontConnection.send(Frame.Text(JSONObject(
-                    mapOf(
-                        "request" to "read_chat",
-                        "memberId" to storage.getChat(event.chatId).getOther(storage.clientId)
+                frontConnection.send(
+                    Frame.Text(
+                        JSONObject(
+                            mapOf(
+                                "request" to "read_chat",
+                                "memberId" to storage.getChat(event.chatId).getOther(storage.clientId)
+                            )
+                        ).toString()
                     )
-                ).toString()))
+                )
             }
         }
     }
@@ -336,13 +384,17 @@ class Controller(val clientId: Id, val app: Application) {
             val chat = Chat(chatId, Pair(storage.clientId, event.producerId))
             storage.addNewChat(chat)
             frontendSenderScope.launch {
-                frontConnection.send(Frame.Text(JSONObject(
-                    mapOf(
-                        "request" to "add_chat",
-                        "memberId" to chat.getOther(storage.clientId),
-                        "chatId" to chatId
+                frontConnection.send(
+                    Frame.Text(
+                        JSONObject(
+                            mapOf(
+                                "request" to "add_chat",
+                                "memberId" to chat.getOther(storage.clientId),
+                                "chatId" to chatId
+                            )
+                        ).toString()
                     )
-                ).toString()))
+                )
             }
         }
     }
@@ -363,12 +415,16 @@ class Controller(val clientId: Id, val app: Application) {
         if (storage.isUserPresent(event.producerId)) {
             storage.getUser(event.producerId).online = false
             frontendSenderScope.launch {
-                frontConnection.send(Frame.Text(JSONObject(
-                    mapOf(
-                        "request" to "offline_user",
-                        "userId" to event.producerId
+                frontConnection.send(
+                    Frame.Text(
+                        JSONObject(
+                            mapOf(
+                                "request" to "offline_user",
+                                "userId" to event.producerId
+                            )
+                        ).toString()
                     )
-                ).toString()))
+                )
             }
         }
     }
