@@ -106,6 +106,7 @@ class DistributedNetwork(
     private suspend fun handleFileUpload(call: ApplicationCall) {
         val mediaId = call.parameters["mediaId"]
         val file = File("media/$mediaId")
+        file.mkdirs()
         val multipartData = call.receiveMultipart()
         multipartData.forEachPart { part ->
             if (part is PartData.FileItem) {
