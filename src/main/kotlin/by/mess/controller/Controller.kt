@@ -19,9 +19,11 @@ import io.socket.emitter.Emitter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonBuilder
 import java.lang.Exception
 import java.sql.Timestamp
 
@@ -48,7 +50,7 @@ class Controller(clientId: Id, app: Application) {
             // arg: userId: Id
             .on("create_chat", createChat)
 
-        frontConnection.emit("require_registration")
+        frontConnection.emit("require_registration", storage.clientId)
     }
 
     init {
@@ -79,7 +81,9 @@ class Controller(clientId: Id, app: Application) {
                 is NetworkEvent.ConnectionClosedEvent -> handleRemoveUserEvent(event)
                 is NetworkEvent.PeerListResponse -> handlePeerList(event)
             }
-        }.launchIn(eventHandlerScope)
+        }
+            .catch { cause -> frontConnection.emit("error_occured", "$cause") }
+            .launchIn(eventHandlerScope)
     }
 
     private val sendMessage = Emitter.Listener {
@@ -96,7 +100,7 @@ class Controller(clientId: Id, app: Application) {
             )
             storage.addNewMessage(message)
         } catch (e: Exception) {
-            frontConnection.emit("error", "Error creating message")
+            frontConnection.emit("error_occured", "Error creating message")
         }
         runBlocking {
             net.eventBus.post(
@@ -121,7 +125,7 @@ class Controller(clientId: Id, app: Application) {
 
     private val changeChat = Emitter.Listener {
         for (message in storage.getMessagesFromChat(it[0] as Id)) {
-            frontConnection.emit("send_message", formatter.encodeToString(Message.serializer(), message))
+            frontConnection.emit("receive_message", formatter.encodeToString(Message.serializer(), message))
         }
     }
 
@@ -143,7 +147,7 @@ class Controller(clientId: Id, app: Application) {
         if (!storage.isMessagePresent(event.message.id)) {
             event.message.status = MessageStatus.DELIVERED
             storage.addNewMessage(event.message)
-            frontConnection.emit("receive_message", event.message)
+            frontConnection.emit("receive_message", formatter.encodeToString(Message.serializer(), event.message))
             runBlocking {
                 net.eventBus.post(
                     NetworkEvent.SendToPeerEvent(
@@ -181,13 +185,13 @@ class Controller(clientId: Id, app: Application) {
     private fun handleIntroductionEvent(event: MessengerEvent.IntroductionEvent) {
         if (!storage.isUserPresent(event.producerId)) {
             storage.addNewUser(event.user)
-            frontConnection.emit("new_user") // @uustrica args?
+            frontConnection.emit("new_user", formatter.encodeToString(User.serializer(), event.user))
         }
     }
 
     private fun handleNewChatEvent(event: MessengerEvent.NewChatEvent) {
         storage.addNewChat(event.chat)
-        frontConnection.emit("add_chat") // @uuustrica args?
+        frontConnection.emit("add_chat", event.chat.getOther(storage.clientId), event.chat.id)
     }
 
     private fun handleNewChatRequest(event: MessengerEvent.NewChatRequest) {
@@ -217,7 +221,7 @@ class Controller(clientId: Id, app: Application) {
         for (message in storage.getMessagesFromChat(event.chatId)) {
             message.status = MessageStatus.READ
         }
-        frontConnection.emit("read_chat", event.chatId)
+        frontConnection.emit("read_chat", storage.getChat(event.chatId).getOther(storage.clientId))
     }
 
     private fun handleNoSuchChatEvent(event: MessengerEvent.NoSuchChatEvent) {
