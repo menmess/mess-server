@@ -156,15 +156,6 @@ class DistributedNetwork(
     }
 
     companion object {
-        @JvmStatic
-        fun Application.module() {
-            install(WebSockets) {
-                pingPeriodMillis = environment.config.property("ktor.websocket.ping_period_ms").getString().toLong()
-                timeoutMillis = environment.config.property("ktor.websocket.timeout_ms").getString().toLong()
-            }
-            DistributedNetwork(0, this)
-        }
-
         private val logger by logger()
     }
 }
