@@ -63,7 +63,7 @@ class Controller(val clientId: Id, val app: Application) {
     init {
         with(app) {
             routing {
-                webSocket("/") {
+                webSocket("/connection") {
                     frontConnection = this
                     sendToFront(
                         mapOf(
