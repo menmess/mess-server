@@ -7,8 +7,10 @@ import by.mess.model.Id
 import by.mess.model.Message
 import by.mess.model.MessageStatus
 import by.mess.model.User
+import by.mess.model.randomId
 import by.mess.p2p.DistributedNetwork
 import by.mess.storage.RAMStorage
+import by.mess.util.exception.InvalidTokenException
 import by.mess.util.serialization.SerializerModule
 import io.ktor.application.*
 import io.socket.client.IO
@@ -20,6 +22,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.runBlocking
+import java.lang.Exception
+import java.sql.Timestamp
 
 @ExperimentalCoroutinesApi
 class Controller(clientId: Id, app: Application) {
@@ -35,7 +39,7 @@ class Controller(clientId: Id, app: Application) {
         frontConnection
             // arg: [username, token]: String[]
             .on("register", register)
-            // arg: message: JSON<model.Message>
+            // arg: [chatId, text, time]: [Id, String, long]
             .on("send_message", sendMessage)
             // arg: chatId: Id (of target chat)
             .on("change_chat", changeChat)
@@ -69,6 +73,8 @@ class Controller(clientId: Id, app: Application) {
                 is MessengerEvent.IntroductionEvent -> handleIntroductionEvent(event)
                 is MessengerEvent.NewChatEvent -> handleNewChatEvent(event)
                 is MessengerEvent.NewChatRequest -> handleNewChatRequest(event)
+                is MessengerEvent.ChatReadEvent -> handleChatReadEvent(event)
+                is MessengerEvent.NoSuchChatEvent -> handleNoSuchChatEvent(event)
                 is NetworkEvent.ConnectionOpenedEvent -> handleNewUserEvent(event)
                 is NetworkEvent.ConnectionClosedEvent -> handleRemoveUserEvent(event)
                 is NetworkEvent.PeerListResponse -> handlePeerList(event)
@@ -77,15 +83,25 @@ class Controller(clientId: Id, app: Application) {
     }
 
     private val sendMessage = Emitter.Listener {
-        // @aleexf, @uuustrica id problem
-        val message = formatter.decodeFromString(Message.serializer(), it[0] as String)
-        storage.addNewMessage(message)
-        // @uuustrica is it needed?
-        // frontConnection.emit("send_message", it[0])
+        var message: Message? = null
+        try {
+            message = Message(
+                randomId(),
+                clientId,
+                it[0] as Id,
+                Timestamp(it[2] as Long),
+                MessageStatus.SENDING,
+                null,
+                it[1] as String
+            )
+            storage.addNewMessage(message)
+        } catch (e: Exception) {
+            frontConnection.emit("error", "Error creating message")
+        }
         runBlocking {
             net.eventBus.post(
                 NetworkEvent.SendToPeerEvent(
-                    clientId, storage.getChat(message.chatId).getOther(clientId),
+                    clientId, storage.getChat(message!!.chatId).getOther(clientId),
                     MessengerEvent.NewMessageEvent(clientId, message)
                 )
             )
@@ -110,12 +126,13 @@ class Controller(clientId: Id, app: Application) {
     }
 
     private val readMessages = Emitter.Listener {
-        for (messageId in storage.getChat(it[0] as Id).messages) {
+        val chatId = it[0] as Id
+        for (messageId in storage.getChat(chatId).messages) {
             runBlocking {
                 net.eventBus.post(
                     NetworkEvent.SendToPeerEvent(
-                        clientId, storage.getChat(it[0] as Id).getOther(clientId),
-                        MessengerEvent.ChangeMessageStatusEvent(clientId, messageId, MessageStatus.READ)
+                        clientId, storage.getChat(chatId).getOther(clientId),
+                        MessengerEvent.ChatReadEvent(clientId, chatId)
                     )
                 )
             }
@@ -124,18 +141,27 @@ class Controller(clientId: Id, app: Application) {
 
     private fun handleNewMessageEvent(event: MessengerEvent.NewMessageEvent) {
         if (!storage.isMessagePresent(event.message.id)) {
+            event.message.status = MessageStatus.DELIVERED
             storage.addNewMessage(event.message)
             frontConnection.emit("receive_message", event.message)
+            runBlocking {
+                net.eventBus.post(
+                    NetworkEvent.SendToPeerEvent(
+                        storage.clientId, event.producerId,
+                        MessengerEvent.ChangeMessageStatusEvent(
+                            storage.clientId,
+                            event.message.id,
+                            MessageStatus.DELIVERED
+                        )
+                    )
+                )
+            }
         }
     }
 
     private fun handleChangeMessageStatus(event: MessengerEvent.ChangeMessageStatusEvent) {
         storage.getMessage(event.messageId).status = event.newStatus
-        if (event.newStatus == MessageStatus.READ) {
-            // @aleexf, @uuustrica backend reads every message separately, frontend reads all messages in chat,
-            // we need to unify it
-            frontConnection.emit("read_messages", storage.getMessage(event.messageId).chatId)
-        }
+        // tbd: delivered messages?
     }
 
     private fun handleIntroductionRequest(event: MessengerEvent.IntroductionRequest) {
@@ -153,12 +179,15 @@ class Controller(clientId: Id, app: Application) {
     }
 
     private fun handleIntroductionEvent(event: MessengerEvent.IntroductionEvent) {
-        // @allexf ???
+        if (!storage.isUserPresent(event.producerId)) {
+            storage.addNewUser(event.user)
+            frontConnection.emit("new_user") // @uustrica args?
+        }
     }
 
     private fun handleNewChatEvent(event: MessengerEvent.NewChatEvent) {
         storage.addNewChat(event.chat)
-        frontConnection.emit("add_chat", formatter.encodeToString(Chat.serializer(), event.chat)) // @uuustrica args?
+        frontConnection.emit("add_chat") // @uuustrica args?
     }
 
     private fun handleNewChatRequest(event: MessengerEvent.NewChatRequest) {
@@ -172,7 +201,29 @@ class Controller(clientId: Id, app: Application) {
                 )
             }
         } catch (e: NoSuchElementException) {
-            // tbd: sync chat creation
+            runBlocking {
+                net.eventBus.post(
+                    NetworkEvent.SendToPeerEvent(
+                        storage.clientId,
+                        event.producerId,
+                        MessengerEvent.NoSuchChatEvent(storage.clientId, event.producerId)
+                    )
+                )
+            }
+        }
+    }
+
+    private fun handleChatReadEvent(event: MessengerEvent.ChatReadEvent) {
+        for (message in storage.getMessagesFromChat(event.chatId)) {
+            message.status = MessageStatus.READ
+        }
+        frontConnection.emit("read_chat", event.chatId)
+    }
+
+    private fun handleNoSuchChatEvent(event: MessengerEvent.NoSuchChatEvent) {
+        if (event.memberId == storage.clientId) {
+            storage.addNewChat(Chat(randomId(), Pair(storage.clientId, event.producerId)))
+            frontConnection.emit("add_chat") // @uuustrica args?
         }
     }
 
