@@ -7,18 +7,22 @@ import by.mess.net.NetworkInterface
 import by.mess.util.exception.ConnectionFailedException
 import by.mess.util.exception.InvalidTokenException
 import by.mess.util.logging.logger
-import io.ktor.application.Application
+import io.ktor.application.*
 import io.ktor.client.*
 import io.ktor.client.features.websocket.*
 import io.ktor.client.request.*
 import io.ktor.features.origin
 import io.ktor.http.*
 import io.ktor.http.cio.websocket.*
-import io.ktor.routing.routing
+import io.ktor.http.content.*
+import io.ktor.request.*
+import io.ktor.response.*
+import io.ktor.routing.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.SerializationException
+import java.io.File
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import kotlin.coroutines.CoroutineContext
@@ -40,6 +44,8 @@ class DistributedNetwork(
     private val peers: MutableList<Peer> = mutableListOf()
     private val peerListenerScope: CoroutineScope = CoroutineScope(SupervisorJob())
 
+    internal val httpClient = HttpClient { install(ClientWebSockets) }
+
     init {
         with(application) {
             backendPort = environment.config.property("ktor.deployment.port").getString().toInt()
@@ -47,6 +53,9 @@ class DistributedNetwork(
             routing {
                 webSocket("/network/{peerId}") {
                     handleConnection(this)
+                }
+                post("/upload/{mediaId}") {
+                    handleFileUpload(call)
                 }
             }
         }
@@ -93,6 +102,19 @@ class DistributedNetwork(
         }
     }
 
+    private suspend fun handleFileUpload(call: ApplicationCall) {
+        val mediaId = call.parameters["mediaId"]
+        val file = File("media/$mediaId")
+        val multipartData = call.receiveMultipart()
+        multipartData.forEachPart { part ->
+            if (part is PartData.FileItem) {
+                val fileBytes = part.streamProvider().readBytes()
+                file.writeBytes(fileBytes)
+            }
+        }
+        call.respond(HttpStatusCode.OK)
+    }
+
     private suspend fun handleConnection(session: DefaultWebSocketServerSession) {
         logger.info("Receiving new connection...")
         val host: String = session.call.request.origin.host
@@ -108,10 +130,7 @@ class DistributedNetwork(
 
     private suspend fun openConnection(peer: Peer) = withContext(sharedDataContext) {
         logger.info("Attempt to connect to peer at ${peer.address}")
-        val client = HttpClient {
-            install(ClientWebSockets)
-        }
-        client.ws(
+        httpClient.ws(
             method = HttpMethod.Get,
             host = peer.address.hostName,
             port = peer.address.port,
