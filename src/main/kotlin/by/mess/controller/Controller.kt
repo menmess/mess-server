@@ -10,6 +10,7 @@ import by.mess.model.User
 import by.mess.model.randomId
 import by.mess.p2p.DistributedNetwork
 import by.mess.storage.RAMStorage
+import by.mess.util.exception.ConnectionFailedException
 import by.mess.util.exception.InvalidTokenException
 import by.mess.util.serialization.SerializerModule
 import io.ktor.application.*
@@ -48,6 +49,7 @@ class Controller(clientId: Id, app: Application) {
             .on("read_messages", readMessages)
             // arg: userId: Id
             .on("create_chat", createChat)
+            // arg: none
             .on("generate_token", generateToken)
 
         frontConnection.emit("require_registration", storage.clientId)
@@ -65,6 +67,10 @@ class Controller(clientId: Id, app: Application) {
                 net.connectToNetwork(it[1] as String)
             } catch (e: InvalidTokenException) {
                 frontConnection.emit("invalid_token")
+                return@Listener
+            } catch (e: ConnectionFailedException) {
+                frontConnection.emit("error_occurred", "Connection failed")
+                return@Listener
             }
         }
         net.eventBus.events.onEach { event ->
@@ -82,12 +88,12 @@ class Controller(clientId: Id, app: Application) {
                 is NetworkEvent.PeerListResponse -> handlePeerList(event)
             }
         }
-            .catch { cause -> frontConnection.emit("error_occured", "$cause") }
+            .catch { cause -> frontConnection.emit("error_occurred", "$cause") }
             .launchIn(eventHandlerScope)
     }
 
     private val sendMessage = Emitter.Listener {
-        var message: Message? = null
+        val message: Message?
         try {
             message = Message(
                 randomId(),
@@ -101,11 +107,12 @@ class Controller(clientId: Id, app: Application) {
             storage.addNewMessage(message)
         } catch (e: Exception) {
             frontConnection.emit("error_occured", "Error creating message")
+            return@Listener
         }
         runBlocking {
             net.eventBus.post(
                 NetworkEvent.SendToPeerEvent(
-                    clientId, storage.getChat(message!!.chatId).getOther(clientId),
+                    clientId, storage.getChat(message.chatId).getOther(clientId),
                     MessengerEvent.NewMessageEvent(clientId, message)
                 )
             )
@@ -131,15 +138,17 @@ class Controller(clientId: Id, app: Application) {
 
     private val readMessages = Emitter.Listener {
         val chatId = it[0] as Id
-        for (messageId in storage.getChat(chatId).messages) {
-            runBlocking {
-                net.eventBus.post(
-                    NetworkEvent.SendToPeerEvent(
-                        clientId, storage.getChat(chatId).getOther(clientId),
-                        MessengerEvent.ChatReadEvent(clientId, chatId)
-                    )
+        if (!storage.isChatPresent(chatId) || !storage.getChat(chatId).isMember(clientId)) {
+            frontConnection.emit("error_occurred", "Wrong chat")
+            return@Listener
+        }
+        runBlocking {
+            net.eventBus.post(
+                NetworkEvent.SendToPeerEvent(
+                    clientId, storage.getChat(chatId).getOther(clientId),
+                    MessengerEvent.ChatReadEvent(clientId, chatId)
                 )
-            }
+            )
         }
     }
 
@@ -168,7 +177,9 @@ class Controller(clientId: Id, app: Application) {
     }
 
     private fun handleChangeMessageStatus(event: MessengerEvent.ChangeMessageStatusEvent) {
-        storage.getMessage(event.messageId).status = event.newStatus
+        if (storage.isMessagePresent(event.messageId)) {
+            storage.getMessage(event.messageId).status = event.newStatus
+        }
         // tbd: delivered messages?
     }
 
@@ -194,8 +205,12 @@ class Controller(clientId: Id, app: Application) {
     }
 
     private fun handleNewChatEvent(event: MessengerEvent.NewChatEvent) {
-        storage.addNewChat(event.chat)
-        frontConnection.emit("add_chat", event.chat.getOther(storage.clientId), event.chat.id)
+        if (!storage.isChatPresent(event.chat.id)) {
+            storage.addNewChat(event.chat)
+            frontConnection.emit("add_chat", event.chat.getOther(storage.clientId), event.chat.id)
+        } else {
+            // tbd: sync chats
+        }
     }
 
     private fun handleNewChatRequest(event: MessengerEvent.NewChatRequest) {
@@ -218,20 +233,28 @@ class Controller(clientId: Id, app: Application) {
                     )
                 )
             }
+            // tbd: sync chats
         }
     }
 
     private fun handleChatReadEvent(event: MessengerEvent.ChatReadEvent) {
-        for (message in storage.getMessagesFromChat(event.chatId)) {
-            message.status = MessageStatus.READ
+        if (storage.isChatPresent(event.chatId)) {
+            for (message in storage.getMessagesFromChat(event.chatId)) {
+                message.status = MessageStatus.READ
+            }
+            frontConnection.emit("read_chat", storage.getChat(event.chatId).getOther(storage.clientId))
         }
-        frontConnection.emit("read_chat", storage.getChat(event.chatId).getOther(storage.clientId))
     }
 
     private fun handleNoSuchChatEvent(event: MessengerEvent.NoSuchChatEvent) {
         if (event.memberId == storage.clientId) {
-            storage.addNewChat(Chat(randomId(), Pair(storage.clientId, event.producerId)))
-            frontConnection.emit("add_chat") // @uuustrica args?
+            var chatId = randomId()
+            while (storage.isChatPresent(chatId)) {
+                chatId = randomId()
+            }
+            val chat = Chat(chatId, Pair(storage.clientId, event.producerId))
+            storage.addNewChat(chat)
+            frontConnection.emit("add_chat", chat.getOther(storage.clientId), chatId)
         }
     }
 
@@ -248,8 +271,10 @@ class Controller(clientId: Id, app: Application) {
     }
 
     private fun handleRemoveUserEvent(event: NetworkEvent.ConnectionClosedEvent) {
-        storage.getUser(event.producerId).online = false
-        frontConnection.emit("offline_user", event.producerId)
+        if (storage.isUserPresent(event.producerId)) {
+            storage.getUser(event.producerId).online = false
+            frontConnection.emit("offline_user", event.producerId)
+        }
     }
 
     private fun handlePeerList(event: NetworkEvent.PeerListResponse) {
