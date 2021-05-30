@@ -36,11 +36,7 @@ class RAMStorage(val clientId: Id) : StorageInterface {
 
     override fun addNewChat(chat: Chat) {
         addNewInstanceToStorage(chat.id, chat, chats)
-        val otherId =
-            if (chat.members.first == clientId) chat.members.second
-            else if (chat.members.second == clientId) chat.members.first
-            else throw IllegalArgumentException("One of chat's members must be clientId ($clientId)")
-        addNewInstanceToStorage(otherId, chat.id, userToChat)
+        addNewInstanceToStorage(chat.getOther(clientId), chat.id, userToChat)
     }
 
     override fun addNewMessage(message: Message) {

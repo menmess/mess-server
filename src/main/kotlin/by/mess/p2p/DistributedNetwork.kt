@@ -8,7 +8,6 @@ import by.mess.util.exception.ConnectionFailedException
 import by.mess.util.exception.InvalidTokenException
 import by.mess.util.logging.logger
 import io.ktor.application.Application
-import io.ktor.application.install
 import io.ktor.client.*
 import io.ktor.client.features.websocket.*
 import io.ktor.client.request.*
@@ -177,15 +176,6 @@ class DistributedNetwork(
     }
 
     companion object {
-        @JvmStatic
-        fun Application.module() {
-            install(WebSockets) {
-                pingPeriodMillis = environment.config.property("ktor.websocket.ping_period_ms").getString().toLong()
-                timeoutMillis = environment.config.property("ktor.websocket.timeout_ms").getString().toLong()
-            }
-            DistributedNetwork(0, this)
-        }
-
         private val logger by logger()
     }
 }
