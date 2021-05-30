@@ -8,7 +8,6 @@ import by.mess.util.exception.ConnectionFailedException
 import by.mess.util.exception.InvalidTokenException
 import by.mess.util.logging.logger
 import io.ktor.application.Application
-import io.ktor.application.install
 import io.ktor.client.*
 import io.ktor.client.features.websocket.*
 import io.ktor.client.request.*
