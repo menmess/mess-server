@@ -45,6 +45,7 @@ sealed class MessengerEvent : AbstractEvent() {
         override val producerId: Id,
     ) : MessengerEvent()
 
+    @Serializable
     data class NoSuchChatEvent(
         override val producerId: Id,
         val memberId: Id

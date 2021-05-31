@@ -22,4 +22,6 @@ data class Chat(
         members.second -> members.first
         else -> throw IllegalArgumentException("One of chat's members must be id ($id)")
     }
+
+    fun isMember(id: Id) = (id == members.first || id == members.second)
 }

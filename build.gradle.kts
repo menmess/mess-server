@@ -27,7 +27,7 @@ dependencies {
     implementation("io.ktor:ktor-server-cio:$ktor_version")
 
     // Serialization
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.2.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.2.1")
 
     // Logging
     implementation("ch.qos.logback:logback-classic:1.2.3")

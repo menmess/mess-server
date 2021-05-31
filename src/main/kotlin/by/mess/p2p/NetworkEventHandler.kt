@@ -9,6 +9,7 @@ import io.ktor.http.*
 import io.ktor.utils.io.streams.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import java.io.File
+import java.lang.IllegalArgumentException
 
 @ExperimentalCoroutinesApi
 class NetworkEventHandler(
@@ -51,6 +52,9 @@ class NetworkEventHandler(
 
     private suspend fun handleSendToPeerEvent(event: NetworkEvent.SendToPeerEvent) {
         val peer: Peer? = network.findPeer(event.receiverId)
+        if (peer == null) {
+            throw IllegalArgumentException("Id not found")
+        }
         if (peer == null || !peer.online) {
             return
         }

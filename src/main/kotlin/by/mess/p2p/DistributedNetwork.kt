@@ -139,10 +139,14 @@ class DistributedNetwork(
             path = "/network/$selfId",
             request = { parameter("network_port", backendPort) }
         ) {
-            val connection = NetworkInterface(this)
-            peer.connection = connection
-            eventBus.post(NetworkEvent.ConnectionOpenedEvent(peer.id))
-            connection.broadcastEvents(eventBus)
+            try {
+                val connection = NetworkInterface(this)
+                peer.connection = connection
+                eventBus.post(NetworkEvent.ConnectionOpenedEvent(peer.id))
+                connection.broadcastEvents(eventBus)
+            } catch (e: Throwable) {
+                logger.warn("Uncaught exception $e")
+            }
         }
         logger.info("Connection to peer at ${peer.address} closed")
     }
