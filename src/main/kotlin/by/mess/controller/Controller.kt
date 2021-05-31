@@ -12,6 +12,7 @@ import by.mess.p2p.DistributedNetwork
 import by.mess.storage.RAMStorage
 import by.mess.util.exception.ConnectionFailedException
 import by.mess.util.exception.InvalidTokenException
+import by.mess.util.serialization.SerializerModule
 import io.ktor.application.*
 import io.ktor.http.cio.websocket.*
 import io.ktor.routing.*
@@ -32,6 +33,7 @@ import java.sql.Timestamp
 class Controller(val clientId: Id, val app: Application) {
     private val storage = RAMStorage(clientId)
     private val net = DistributedNetwork(clientId, app)
+    private val formatter = SerializerModule.formatter
     private lateinit var clientUser: User
 
     private lateinit var frontConnection: WebSocketServerSession
@@ -155,7 +157,7 @@ class Controller(val clientId: Id, val app: Application) {
             sendToFront(
                 mapOf(
                     "request" to "receive_message",
-                    "message" to message
+                    "message" to formatter.encodeToString(Message.serializer(), message)
                 )
             )
         }
@@ -218,7 +220,7 @@ class Controller(val clientId: Id, val app: Application) {
             sendToFront(
                 mapOf(
                     "request" to "new_user",
-                    "user" to event.user
+                    "user" to formatter.encodeToString(User.serializer(), event.user)
                 )
             )
         }
