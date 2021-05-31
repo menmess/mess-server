@@ -1,5 +1,6 @@
 package by.mess.controller
 
+import by.mess.event.AbstractEvent
 import by.mess.event.MessengerEvent
 import by.mess.event.NetworkEvent
 import by.mess.model.Chat
@@ -28,6 +29,7 @@ import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import java.lang.Exception
 import java.sql.Timestamp
+import by.mess.util.logging.logger
 
 @ExperimentalCoroutinesApi
 class Controller(val clientId: Id, val app: Application) {
@@ -40,6 +42,8 @@ class Controller(val clientId: Id, val app: Application) {
 
     private val eventHandlerScope = CoroutineScope(SupervisorJob())
     private val frontendSenderScope = CoroutineScope(SupervisorJob())
+
+    private val logger by logger()
 
     private fun sendToFront(map: Map<Any, Any>) {
         frontendSenderScope.launch {
@@ -79,8 +83,9 @@ class Controller(val clientId: Id, val app: Application) {
                         }
                         frame as Frame.Text
                         val json = JSONObject(frame.readText())
+                        logger.info("Handling frontend request ${json.getString("request")}")
                         when (json.getString("request")) {
-                            "register" -> register(json.getString("username"), json.getString("token"))
+                            "register" -> register(json.getString("username"), json.getString("token").trimEnd('\n'))
                             "send_message" -> sendMessage(
                                 json.getLong("chatId"),
                                 json.getString("text"),
@@ -110,11 +115,12 @@ class Controller(val clientId: Id, val app: Application) {
                 )
                 return
             } catch (e: ConnectionFailedException) {
-                sendErrorToFront("Connection failed")
+                sendErrorToFront("Connection failed, cause $e")
                 return
             }
         }
         net.eventBus.events.onEach { event ->
+            logger.info("Handling ${formatter.encodeToString(AbstractEvent.serializer(), event)}, clientId=$clientId")
             when (event) {
                 is MessengerEvent.NewMessageEvent -> handleNewMessageEvent(event)
                 is MessengerEvent.ChangeMessageStatusEvent -> handleChangeMessageStatus(event)
@@ -284,7 +290,9 @@ class Controller(val clientId: Id, val app: Application) {
     }
 
     private fun handleNewUserEvent(event: NetworkEvent.ConnectionOpenedEvent) {
-        sendToNetwork(event.producerId, MessengerEvent.IntroductionRequest(clientId, event.producerId))
+        if (event.producerId != clientId) {
+            sendToNetwork(event.producerId, MessengerEvent.IntroductionRequest(clientId, event.producerId))
+        }
     }
 
     private fun handleRemoveUserEvent(event: NetworkEvent.ConnectionClosedEvent) {
