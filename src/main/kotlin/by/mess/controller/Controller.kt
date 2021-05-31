@@ -13,6 +13,7 @@ import by.mess.p2p.DistributedNetwork
 import by.mess.storage.RAMStorage
 import by.mess.util.exception.ConnectionFailedException
 import by.mess.util.exception.InvalidTokenException
+import by.mess.util.logging.logger
 import by.mess.util.serialization.SerializerModule
 import io.ktor.application.*
 import io.ktor.http.cio.websocket.*
@@ -29,7 +30,6 @@ import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import java.lang.Exception
 import java.sql.Timestamp
-import by.mess.util.logging.logger
 
 @ExperimentalCoroutinesApi
 class Controller(val clientId: Id, val app: Application) {
