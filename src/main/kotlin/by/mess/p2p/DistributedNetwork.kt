@@ -3,6 +3,7 @@ package by.mess.p2p
 import by.mess.event.EventBus
 import by.mess.event.NetworkEvent
 import by.mess.model.Id
+import by.mess.model.randomId
 import by.mess.net.NetworkInterface
 import by.mess.util.exception.ConnectionFailedException
 import by.mess.util.exception.InvalidTokenException
@@ -54,8 +55,8 @@ class DistributedNetwork(
                 webSocket("/network/{peerId}") {
                     handleConnection(this)
                 }
-                post("/upload/{mediaId}") {
-                    logger.info("Loading file: ${call.parameters["mediaId"]}")
+                post("/upload") {
+                    logger.info("Loading file: ${call.request.queryParameters["filename"]}")
                     handleFileUpload(call)
                 }
             }
@@ -104,8 +105,8 @@ class DistributedNetwork(
     }
 
     private suspend fun handleFileUpload(call: ApplicationCall) {
-        val mediaId = call.parameters["mediaId"]
-        val file = File("media/$mediaId")
+        val filename: String = call.request.queryParameters["filename"] ?: randomId().toString()
+        val file = File("media/$filename")
         file.mkdirs()
         val multipartData = call.receiveMultipart()
         multipartData.forEachPart { part ->
@@ -114,7 +115,7 @@ class DistributedNetwork(
                 file.writeBytes(fileBytes)
             }
         }
-        call.respond(HttpStatusCode.OK)
+        call.respond(HttpStatusCode.OK, filename)
     }
 
     private suspend fun handleConnection(session: DefaultWebSocketServerSession) {

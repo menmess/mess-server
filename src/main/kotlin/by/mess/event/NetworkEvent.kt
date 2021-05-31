@@ -26,7 +26,7 @@ sealed class NetworkEvent : AbstractEvent() {
     data class SendFileToPeerEvent(
         override val producerId: Id,
         val receiverId: Id,
-        val fileId: Id
+        val filename: String
     ) : NetworkEvent()
 
     @Serializable

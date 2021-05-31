@@ -4,6 +4,7 @@ import by.mess.event.AbstractEvent
 import by.mess.event.NetworkEvent
 import by.mess.util.logging.logger
 import by.mess.util.serialization.SerializerModule
+import io.ktor.client.request.*
 import io.ktor.client.request.forms.*
 import io.ktor.http.*
 import io.ktor.utils.io.streams.*
@@ -51,12 +52,10 @@ class NetworkEventHandler(
     }
 
     private suspend fun handleSendToPeerEvent(event: NetworkEvent.SendToPeerEvent) {
-        val peer: Peer? = network.findPeer(event.receiverId)
-        if (peer == null) {
-            throw IllegalArgumentException("Id not found")
-        }
-        if (peer == null || !peer.online) {
-            return
+        val peer: Peer = network.findPeer(event.receiverId)
+            ?: throw IllegalArgumentException("Id not found")
+        if (!peer.online) {
+            logger.debug("Failed to send message to peer ${peer.address}: peer offline")
         }
         try {
             peer.connection!!.sendEvent(event.message)
@@ -71,7 +70,7 @@ class NetworkEventHandler(
             return
         }
         try {
-            val file = File("media/${event.fileId}")
+            val file = File("media/${event.filename}")
             network.httpClient.submitFormWithBinaryData(
                 url = peer.address.toString(),
                 formData = formData {
@@ -79,11 +78,13 @@ class NetworkEventHandler(
                         "file", InputProvider { file.inputStream().asInput() },
                         Headers.build {
                             append(HttpHeaders.ContentType, ContentType.defaultForFile(file))
-                            append(HttpHeaders.ContentDisposition, "filename=${event.fileId}")
+                            append(HttpHeaders.ContentDisposition, "filename=${event.filename}")
                         }
                     )
                 }
-            )
+            ) {
+                parameter("filename", event.filename)
+            }
         } catch (cause: Throwable) {
             logger.info("Failed to send file to peer ${peer.address}: $cause")
         }
