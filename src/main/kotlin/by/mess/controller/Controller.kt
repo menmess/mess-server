@@ -35,7 +35,6 @@ import java.sql.Timestamp
 class Controller(val clientId: Id, val app: Application) {
     private val storage = RAMStorage(clientId)
     private val net = DistributedNetwork(clientId, app)
-    private val formatter = SerializerModule.formatter
     private lateinit var clientUser: User
 
     private lateinit var frontConnection: WebSocketServerSession
@@ -62,6 +61,7 @@ class Controller(val clientId: Id, val app: Application) {
     }
 
     private fun sendToNetwork(receiverId: Id, event: MessengerEvent) {
+        val formatter = SerializerModule.formatter
         logger.info("Sending ${formatter.encodeToString(AbstractEvent.serializer(), event)} to $receiverId")
         runBlocking {
             net.eventBus.post(NetworkEvent.SendToPeerEvent(clientId, receiverId, event))
@@ -113,6 +113,7 @@ class Controller(val clientId: Id, val app: Application) {
 
     private fun register(username: String, token: String) {
         clientUser = User(clientId, username, true)
+        storage.addNewUser(clientUser)
         if (token != "") {
             try {
                 net.connectToNetwork(token)
@@ -128,6 +129,7 @@ class Controller(val clientId: Id, val app: Application) {
                 return
             }
         }
+        val formatter = SerializerModule.formatter
         net.eventBus.events.onEach { event ->
             when (event) {
                 is MessengerEvent.NewMessageEvent -> handleNewMessageEvent(event)
@@ -154,6 +156,7 @@ class Controller(val clientId: Id, val app: Application) {
             message = Message(randomId(), clientId, chatId, Timestamp(time), MessageStatus.SENDING, null, text)
             storage.addNewMessage(message)
         } catch (e: Exception) {
+            logger.error("$e, cause ${e.cause}")
             sendErrorToFront("Error creating message")
             return
         }
@@ -168,6 +171,7 @@ class Controller(val clientId: Id, val app: Application) {
     }
 
     private fun changeChat(chatId: Id) {
+        val formatter = SerializerModule.formatter
         for (message in storage.getMessagesFromChat(chatId)) {
             sendToFront(
                 mapOf(
@@ -197,6 +201,7 @@ class Controller(val clientId: Id, val app: Application) {
 
     private fun handleNewMessageEvent(event: MessengerEvent.NewMessageEvent) {
         if (!storage.isMessagePresent(event.message.id)) {
+            val formatter = SerializerModule.formatter
             event.message.status = MessageStatus.DELIVERED
             storage.addNewMessage(event.message)
             sendToFront(
@@ -231,6 +236,7 @@ class Controller(val clientId: Id, val app: Application) {
 
     private fun handleIntroductionEvent(event: MessengerEvent.IntroductionEvent) {
         if (!storage.isUserPresent(event.producerId)) {
+            val formatter = SerializerModule.formatter
             storage.addNewUser(event.user)
             sendToFront(
                 mapOf(

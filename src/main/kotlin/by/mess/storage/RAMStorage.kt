@@ -9,7 +9,7 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.streams.toList
 
 class RAMStorage(val clientId: Id) : StorageInterface {
-    private var users: ConcurrentHashMap<Id, User> = ConcurrentHashMap()
+    var users: ConcurrentHashMap<Id, User> = ConcurrentHashMap()
     private var chats: ConcurrentHashMap<Id, Chat> = ConcurrentHashMap()
     private var messages: ConcurrentHashMap<Id, Message> = ConcurrentHashMap()
     private var userToChat: ConcurrentHashMap<Id, Id> = ConcurrentHashMap()
@@ -27,7 +27,7 @@ class RAMStorage(val clientId: Id) : StorageInterface {
     override fun getMessage(id: Id): Message = getInstanceFromStorage(id, messages)
 
     private fun <Type> addNewInstanceToStorage(id: Id, instance: Type, map: ConcurrentHashMap<Id, Type>) {
-        if (map.contains(id)) {
+        if (map.containsKey(id)) {
             throw IllegalArgumentException("Instance with id=$id already present")
         }
         map[id] = instance
@@ -41,21 +41,22 @@ class RAMStorage(val clientId: Id) : StorageInterface {
     }
 
     override fun addNewMessage(message: Message) {
+        if (!isUserPresent(message.authorId)) throw IllegalArgumentException("Message's author doesn't exist")
         addNewInstanceToStorage(message.id, message, messages)
         chats[message.chatId]?.messages?.add(message.id)
             ?: throw IllegalArgumentException("Chat for the message with id=${message.id} doesn't exist")
-        if (!isUserPresent(message.authorId)) throw IllegalArgumentException("Message's author doesn't exist")
     }
 
-    override fun isUserPresent(id: Id): Boolean = users.contains(id)
+    override fun isUserPresent(id: Id): Boolean = users.containsKey(id)
 
-    override fun isChatPresent(id: Id): Boolean = chats.contains(id)
+    override fun isChatPresent(id: Id): Boolean = chats.containsKey(id)
 
-    override fun isMessagePresent(id: Id): Boolean = messages.contains(id)
+    override fun isMessagePresent(id: Id): Boolean = messages.containsKey(id)
 
     override fun removeUser(id: Id) {
         users.remove(id)
         chats.remove(userToChat[id])
+        userToChat.remove(id)
     }
 
     override fun removeChat(id: Id) {
