@@ -129,7 +129,6 @@ class Controller(val clientId: Id, val app: Application) {
             }
         }
         net.eventBus.events.onEach { event ->
-            logger.info("Handling ${formatter.encodeToString(AbstractEvent.serializer(), event)}, clientId=$clientId")
             when (event) {
                 is MessengerEvent.NewMessageEvent -> handleNewMessageEvent(event)
                 is MessengerEvent.ChangeMessageStatusEvent -> handleChangeMessageStatus(event)
@@ -141,7 +140,9 @@ class Controller(val clientId: Id, val app: Application) {
                 is MessengerEvent.NoSuchChatEvent -> handleNoSuchChatEvent(event)
                 is NetworkEvent.ConnectionOpenedEvent -> handleNewUserEvent(event)
                 is NetworkEvent.ConnectionClosedEvent -> handleRemoveUserEvent(event)
+                else -> return@onEach
             }
+            logger.info("Handling ${formatter.encodeToString(AbstractEvent.serializer(), event)}, clientId=$clientId")
         }
             .catch { cause -> sendErrorToFront("$cause") }
             .launchIn(eventHandlerScope)
