@@ -74,7 +74,7 @@ class Controller(val clientId: Id, val app: Application) {
                     sendToFront(
                         mapOf(
                             "request" to "require_registration",
-                            "clientId" to clientId
+                            "clientId" to clientId.toString()
                         )
                     )
                     for (frame in incoming) {
@@ -87,13 +87,13 @@ class Controller(val clientId: Id, val app: Application) {
                         when (json.getString("request")) {
                             "register" -> register(json.getString("username"), json.getString("token").trimEnd('\n'))
                             "send_message" -> sendMessage(
-                                json.getLong("chatId"),
+                                json.getString("chatId").toLong(),
                                 json.getString("text"),
                                 json.getLong("time")
                             )
-                            "create_chat" -> createChat(json.getLong("userId"))
-                            "change_chat" -> changeChat(json.getLong("chatId"))
-                            "read_messages" -> readMessages(json.getLong("chatId"))
+                            "create_chat" -> createChat(json.getString("userId").toLong())
+                            "change_chat" -> changeChat(json.getString("chatId").toLong())
+                            "read_messages" -> readMessages(json.getString("chatId").toLong())
                             "generate_token" -> generateToken()
                         }
                     }
@@ -193,7 +193,7 @@ class Controller(val clientId: Id, val app: Application) {
             sendToFront(
                 mapOf(
                     "request" to "receive_message",
-                    "message" to event.message
+                    "message" to formatter.encodeToString(Message.serializer(), event.message)
                 )
             )
             sendToNetwork(
@@ -238,8 +238,8 @@ class Controller(val clientId: Id, val app: Application) {
             sendToFront(
                 mapOf(
                     "request" to "add_chat",
-                    "memberId" to event.chat.getOther(clientId),
-                    "chatId" to event.chat.id
+                    "memberId" to event.chat.getOther(clientId).toString(),
+                    "chatId" to event.chat.id.toString()
                 )
             )
         } else {
@@ -265,7 +265,7 @@ class Controller(val clientId: Id, val app: Application) {
             sendToFront(
                 mapOf(
                     "request" to "read_chat",
-                    "memberId" to storage.getChat(event.chatId).getOther(clientId)
+                    "memberId" to storage.getChat(event.chatId).getOther(clientId).toString()
                 )
             )
         }
@@ -282,8 +282,8 @@ class Controller(val clientId: Id, val app: Application) {
             sendToFront(
                 mapOf(
                     "request" to "add_chat",
-                    "memberId" to chat.getOther(clientId),
-                    "chatId" to chatId
+                    "memberId" to chat.getOther(clientId).toString(),
+                    "chatId" to chatId.toString()
                 )
             )
         }
@@ -301,7 +301,7 @@ class Controller(val clientId: Id, val app: Application) {
             sendToFront(
                 mapOf(
                     "request" to "offline_user",
-                    "userId" to event.producerId
+                    "userId" to event.producerId.toString()
                 )
             )
         }
