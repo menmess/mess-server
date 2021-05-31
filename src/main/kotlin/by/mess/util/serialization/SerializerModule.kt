@@ -21,6 +21,7 @@ object SerializerModule {
                 subclass(NetworkEvent.PeerListRequest::class)
                 subclass(NetworkEvent.PeerListResponse::class)
                 subclass(NetworkEvent.SendToPeerEvent::class)
+                subclass(NetworkEvent.SendFileToPeerEvent::class)
                 subclass(NetworkEvent.ConnectionOpenedEvent::class)
                 subclass(NetworkEvent.ConnectionClosedEvent::class)
                 subclass(MessengerEvent.NoSuchChatEvent::class)
