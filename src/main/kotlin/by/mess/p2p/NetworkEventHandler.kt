@@ -9,6 +9,7 @@ import io.ktor.client.request.forms.*
 import io.ktor.http.*
 import io.ktor.utils.io.streams.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import java.io.File
 import java.lang.IllegalArgumentException
 
@@ -69,10 +70,11 @@ class NetworkEventHandler(
         if (peer == null || !peer.online) {
             return
         }
+        delay(1000)
         try {
             val file = File("media/${event.filename}")
             network.httpClient.submitFormWithBinaryData(
-                url = peer.address.toString(),
+                url = "http://" + peer.address.toString() + "/upload",
                 formData = formData {
                     append(
                         "file", InputProvider { file.inputStream().asInput() },

@@ -58,7 +58,12 @@ class DistributedNetwork(
                 }
                 post("/upload") {
                     logger.info("Loading file: ${call.request.queryParameters["filename"]}")
-                    handleFileUpload(call)
+                    try {
+                        handleFileUpload(call)
+                    } catch (e: Throwable) {
+                        logger.warn("Uploading file error: $e, cause = ${e.cause}")
+                        call.respond(HttpStatusCode.InternalServerError)
+                    }
                 }
             }
         }
@@ -74,7 +79,7 @@ class DistributedNetwork(
         return TokenManager.getToken(
             Peer(
                 selfId,
-                InetSocketAddress(InetAddress.getLocalHost(), backendPort)
+                InetSocketAddress(InetAddress.getLocalHost().hostAddress, backendPort)
             )
         )
     }
