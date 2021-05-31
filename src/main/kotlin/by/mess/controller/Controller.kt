@@ -164,6 +164,13 @@ class Controller(val clientId: Id, val app: Application) {
             storage.getChat(message.chatId).getOther(clientId),
             MessengerEvent.NewMessageEvent(clientId, message)
         )
+        val formatter = SerializerModule.formatter
+        sendToFront(
+            mapOf(
+                "request" to "receive_message",
+                "message" to formatter.encodeToString(Message.serializer(), message)
+            )
+        )
     }
 
     private fun createChat(userId: Id) {
@@ -203,6 +210,17 @@ class Controller(val clientId: Id, val app: Application) {
         if (!storage.isMessagePresent(event.message.id)) {
             val formatter = SerializerModule.formatter
             event.message.status = MessageStatus.DELIVERED
+            if (!storage.isChatPresent(event.message.chatId)) {
+                val chat = Chat(event.message.chatId, clientId to event.producerId)
+                storage.addNewChat(chat)
+                sendToFront(
+                    mapOf(
+                        "request" to "add_chat",
+                        "memberId" to chat.getOther(clientId),
+                        "chatId" to chat.id
+                    )
+                )
+            }
             storage.addNewMessage(event.message)
             sendToFront(
                 mapOf(
