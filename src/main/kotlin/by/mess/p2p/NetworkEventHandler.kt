@@ -5,6 +5,7 @@ import by.mess.event.NetworkEvent
 import by.mess.util.logging.logger
 import by.mess.util.serialization.SerializerModule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import java.lang.IllegalArgumentException
 
 @ExperimentalCoroutinesApi
 class NetworkEventHandler(
@@ -46,6 +47,9 @@ class NetworkEventHandler(
 
     private suspend fun handleSendToPeerEvent(event: NetworkEvent.SendToPeerEvent) {
         val peer: Peer? = network.findPeer(event.receiverId)
+        if (peer == null) {
+            throw IllegalArgumentException("Id not found")
+        }
         if (peer == null || !peer.online) {
             return
         }

@@ -46,6 +46,7 @@ class Controller(val clientId: Id, val app: Application) {
     private val logger by logger()
 
     private fun sendToFront(map: Map<Any, Any>) {
+        logger.info("Sending $map to front")
         frontendSenderScope.launch {
             frontConnection.send(Frame.Text(JSONObject(map).toString()))
         }
@@ -61,6 +62,7 @@ class Controller(val clientId: Id, val app: Application) {
     }
 
     private fun sendToNetwork(receiverId: Id, event: MessengerEvent) {
+        logger.info("Sending ${formatter.encodeToString(AbstractEvent.serializer(), event)} to $receiverId")
         runBlocking {
             net.eventBus.post(NetworkEvent.SendToPeerEvent(clientId, receiverId, event))
         }
@@ -74,27 +76,34 @@ class Controller(val clientId: Id, val app: Application) {
                     sendToFront(
                         mapOf(
                             "request" to "require_registration",
-                            "clientId" to clientId.toString()
+                            "clientId" to clientId
                         )
                     )
                     for (frame in incoming) {
-                        if (frame.frameType != FrameType.TEXT) {
-                            continue
-                        }
-                        frame as Frame.Text
-                        val json = JSONObject(frame.readText())
-                        logger.info("Handling frontend request ${json.getString("request")}")
-                        when (json.getString("request")) {
-                            "register" -> register(json.getString("username"), json.getString("token").trimEnd('\n'))
-                            "send_message" -> sendMessage(
-                                json.getString("chatId").toLong(),
-                                json.getString("text"),
-                                json.getLong("time")
-                            )
-                            "create_chat" -> createChat(json.getString("userId").toLong())
-                            "change_chat" -> changeChat(json.getString("chatId").toLong())
-                            "read_messages" -> readMessages(json.getString("chatId").toLong())
-                            "generate_token" -> generateToken()
+                        try {
+                            if (frame.frameType != FrameType.TEXT) {
+                                continue
+                            }
+                            frame as Frame.Text
+                            val json = JSONObject(frame.readText())
+                            logger.info("Handling frontend request ${frame.readText()}")
+                            when (json.getString("request")) {
+                                "register" -> register(
+                                    json.getString("username"),
+                                    json.getString("token").trimEnd('\n')
+                                )
+                                "send_message" -> sendMessage(
+                                    json.getLong("chatId"),
+                                    json.getString("text"),
+                                    json.getLong("time")
+                                )
+                                "create_chat" -> createChat(json.getLong("userId"))
+                                "change_chat" -> changeChat(json.getLong("chatId"))
+                                "read_messages" -> readMessages(json.getLong("chatId"))
+                                "generate_token" -> generateToken()
+                            }
+                        } catch (e: Exception) {
+                            logger.error("$e, cause ${e.cause}")
                         }
                     }
                 }
@@ -132,7 +141,6 @@ class Controller(val clientId: Id, val app: Application) {
                 is MessengerEvent.NoSuchChatEvent -> handleNoSuchChatEvent(event)
                 is NetworkEvent.ConnectionOpenedEvent -> handleNewUserEvent(event)
                 is NetworkEvent.ConnectionClosedEvent -> handleRemoveUserEvent(event)
-                is NetworkEvent.PeerListResponse -> handlePeerList(event)
             }
         }
             .catch { cause -> sendErrorToFront("$cause") }
@@ -238,8 +246,8 @@ class Controller(val clientId: Id, val app: Application) {
             sendToFront(
                 mapOf(
                     "request" to "add_chat",
-                    "memberId" to event.chat.getOther(clientId).toString(),
-                    "chatId" to event.chat.id.toString()
+                    "memberId" to event.chat.getOther(clientId),
+                    "chatId" to event.chat.id
                 )
             )
         } else {
@@ -265,7 +273,7 @@ class Controller(val clientId: Id, val app: Application) {
             sendToFront(
                 mapOf(
                     "request" to "read_chat",
-                    "memberId" to storage.getChat(event.chatId).getOther(clientId).toString()
+                    "memberId" to storage.getChat(event.chatId).getOther(clientId)
                 )
             )
         }
@@ -282,8 +290,8 @@ class Controller(val clientId: Id, val app: Application) {
             sendToFront(
                 mapOf(
                     "request" to "add_chat",
-                    "memberId" to chat.getOther(clientId).toString(),
-                    "chatId" to chatId.toString()
+                    "memberId" to chat.getOther(clientId),
+                    "chatId" to chatId
                 )
             )
         }
@@ -301,15 +309,9 @@ class Controller(val clientId: Id, val app: Application) {
             sendToFront(
                 mapOf(
                     "request" to "offline_user",
-                    "userId" to event.producerId.toString()
+                    "userId" to event.producerId
                 )
             )
-        }
-    }
-
-    private fun handlePeerList(event: NetworkEvent.PeerListResponse) {
-        for (peer in event.peers) {
-            sendToNetwork(peer.id, MessengerEvent.IntroductionRequest(clientId, peer.id))
         }
     }
 }

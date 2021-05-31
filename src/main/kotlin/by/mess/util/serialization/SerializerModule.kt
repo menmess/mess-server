@@ -22,6 +22,8 @@ object SerializerModule {
             subclass(NetworkEvent.SendToPeerEvent::class)
             subclass(NetworkEvent.ConnectionOpenedEvent::class)
             subclass(NetworkEvent.ConnectionClosedEvent::class)
+            subclass(MessengerEvent.NoSuchChatEvent::class)
+            subclass(MessengerEvent.ChatReadEvent::class)
         }
     }
     val formatter: Json
