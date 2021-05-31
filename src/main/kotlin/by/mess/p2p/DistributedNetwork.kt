@@ -48,6 +48,7 @@ class DistributedNetwork(
     internal val httpClient = HttpClient { install(ClientWebSockets) }
 
     init {
+        File("media/").mkdirs()
         with(application) {
             backendPort = environment.config.property("ktor.deployment.port").getString().toInt()
             logger.info("Backend port = $backendPort")
@@ -107,7 +108,6 @@ class DistributedNetwork(
     private suspend fun handleFileUpload(call: ApplicationCall) {
         val filename: String = call.request.queryParameters["filename"] ?: randomId().toString()
         val file = File("media/$filename")
-        file.mkdirs()
         val multipartData = call.receiveMultipart()
         multipartData.forEachPart { part ->
             if (part is PartData.FileItem) {
