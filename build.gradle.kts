@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "by"
-version = "1.0"
+version = "1.1"
 
 repositories {
     mavenCentral()
@@ -27,14 +27,15 @@ dependencies {
     implementation("io.ktor:ktor-server-cio:$ktor_version")
 
     // Serialization
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.2.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.2.1")
 
     // Logging
     implementation("ch.qos.logback:logback-classic:1.2.3")
+
+    implementation("io.socket:socket.io-client:1.0.0")
 }
 
 application {
-//    mainClass.set("io.ktor.server.cio.EngineMain")
     mainClass.set("by.mess.MainKt")
 }
 
@@ -50,6 +51,5 @@ tasks.jar {
     manifest {
         attributes("Main-Class" to "by.mess.MainKt")
     }
-
     from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) })
 }

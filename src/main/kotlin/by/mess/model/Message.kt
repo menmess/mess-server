@@ -12,7 +12,7 @@ data class Message(
     @Serializable(with = TimestampSerializer::class)
     val sent: Timestamp,
     var status: MessageStatus,
-    val mediaId: Id?,
+    val attachmentUrl: String?,
     val text: String
 ) {
     override fun equals(other: Any?): Boolean {

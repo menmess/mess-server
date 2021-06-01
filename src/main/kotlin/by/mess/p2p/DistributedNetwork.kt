@@ -3,21 +3,28 @@ package by.mess.p2p
 import by.mess.event.EventBus
 import by.mess.event.NetworkEvent
 import by.mess.model.Id
+import by.mess.model.randomId
 import by.mess.net.NetworkInterface
 import by.mess.util.exception.ConnectionFailedException
+import by.mess.util.exception.InvalidTokenException
 import by.mess.util.logging.logger
-import io.ktor.application.Application
-import io.ktor.application.install
+import io.ktor.application.*
 import io.ktor.client.*
 import io.ktor.client.features.websocket.*
 import io.ktor.client.request.*
 import io.ktor.features.origin
 import io.ktor.http.*
 import io.ktor.http.cio.websocket.*
-import io.ktor.routing.routing
+import io.ktor.http.content.*
+import io.ktor.request.*
+import io.ktor.response.*
+import io.ktor.routing.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.serialization.SerializationException
+import java.io.File
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import kotlin.coroutines.CoroutineContext
 import io.ktor.client.features.websocket.WebSockets as ClientWebSockets
@@ -38,13 +45,25 @@ class DistributedNetwork(
     private val peers: MutableList<Peer> = mutableListOf()
     private val peerListenerScope: CoroutineScope = CoroutineScope(SupervisorJob())
 
+    internal val httpClient = HttpClient { install(ClientWebSockets) }
+
     init {
+        File("media/").mkdirs()
         with(application) {
             backendPort = environment.config.property("ktor.deployment.port").getString().toInt()
             logger.info("Backend port = $backendPort")
             routing {
                 webSocket("/network/{peerId}") {
                     handleConnection(this)
+                }
+                post("/upload") {
+                    logger.info("Loading file: ${call.request.queryParameters["filename"]}")
+                    try {
+                        handleFileUpload(call)
+                    } catch (e: Throwable) {
+                        logger.warn("Uploading file error: $e, cause = ${e.cause}")
+                        call.respond(HttpStatusCode.InternalServerError)
+                    }
                 }
             }
         }
@@ -56,7 +75,25 @@ class DistributedNetwork(
             .launchIn(eventHandlerScope)
     }
 
-    fun connect(peer: Peer) {
+    fun getConnectionToken(): String {
+        return TokenManager.getToken(
+            Peer(
+                selfId,
+                InetSocketAddress(InetAddress.getLocalHost().hostAddress, backendPort)
+            )
+        )
+    }
+
+    fun connectToNetwork(token: String) {
+        val peer = try {
+            TokenManager.decodeToken(token)
+        } catch (exc: SerializationException) {
+            throw InvalidTokenException(token)
+        }
+        connectToNetwork(peer)
+    }
+
+    private fun connectToNetwork(peer: Peer) {
         try {
             runBlocking {
                 if (findPeer(peer.id) != null) {
@@ -71,6 +108,19 @@ class DistributedNetwork(
             logger.info("Connecting to peer ${peer.address.address} failed: $e")
             throw ConnectionFailedException()
         }
+    }
+
+    private suspend fun handleFileUpload(call: ApplicationCall) {
+        val filename: String = call.request.queryParameters["filename"] ?: randomId().toString()
+        val file = File("media/$filename")
+        val multipartData = call.receiveMultipart()
+        multipartData.forEachPart { part ->
+            if (part is PartData.FileItem) {
+                val fileBytes = part.streamProvider().readBytes()
+                file.writeBytes(fileBytes)
+            }
+        }
+        call.respond(HttpStatusCode.OK, filename)
     }
 
     private suspend fun handleConnection(session: DefaultWebSocketServerSession) {
@@ -88,20 +138,21 @@ class DistributedNetwork(
 
     private suspend fun openConnection(peer: Peer) = withContext(sharedDataContext) {
         logger.info("Attempt to connect to peer at ${peer.address}")
-        val client = HttpClient {
-            install(ClientWebSockets)
-        }
-        client.ws(
+        httpClient.ws(
             method = HttpMethod.Get,
             host = peer.address.hostName,
             port = peer.address.port,
             path = "/network/$selfId",
             request = { parameter("network_port", backendPort) }
         ) {
-            val connection = NetworkInterface(this)
-            peer.connection = connection
-            eventBus.post(NetworkEvent.ConnectionOpenedEvent(peer.id))
-            connection.broadcastEvents(eventBus)
+            try {
+                val connection = NetworkInterface(this)
+                peer.connection = connection
+                eventBus.post(NetworkEvent.ConnectionOpenedEvent(peer.id))
+                connection.broadcastEvents(eventBus)
+            } catch (e: Throwable) {
+                logger.warn("Uncaught exception $e")
+            }
         }
         logger.info("Connection to peer at ${peer.address} closed")
     }
@@ -156,15 +207,6 @@ class DistributedNetwork(
     }
 
     companion object {
-        @JvmStatic
-        fun Application.module() {
-            install(WebSockets) {
-                pingPeriodMillis = environment.config.property("ktor.websocket.ping_period_ms").getString().toLong()
-                timeoutMillis = environment.config.property("ktor.websocket.timeout_ms").getString().toLong()
-            }
-            DistributedNetwork(0, this)
-        }
-
         private val logger by logger()
     }
 }
