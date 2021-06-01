@@ -55,8 +55,10 @@ class RAMStorage(val clientId: Id) : StorageInterface {
 
     override fun removeUser(id: Id) {
         users.remove(id)
-        chats.remove(userToChat[id])
-        userToChat.remove(id)
+        if (userToChat.containsKey(id)) {
+            chats.remove(userToChat[id])
+            userToChat.remove(id)
+        }
     }
 
     override fun removeChat(id: Id) {
