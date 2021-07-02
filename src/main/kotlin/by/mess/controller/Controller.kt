@@ -60,7 +60,7 @@ class Controller(val clientId: Id, val app: Application) {
         )
     }
 
-    private fun sendToNetwork(receiverId: Id, event: MessengerEvent) {
+    private fun sendToNetwork(receiverId: Id, event: AbstractEvent) {
         val formatter = SerializerModule.formatter
         logger.info("Sending ${formatter.encodeToString(AbstractEvent.serializer(), event)} to $receiverId")
         runBlocking {
@@ -95,7 +95,8 @@ class Controller(val clientId: Id, val app: Application) {
                                 "send_message" -> sendMessage(
                                     json.getLong("chatId"),
                                     json.getString("text"),
-                                    json.getLong("time")
+                                    json.getLong("time"),
+                                    json.getString("attachmentUrl")
                                 )
                                 "create_chat" -> createChat(json.getLong("userId"))
                                 "change_chat" -> changeChat(json.getLong("chatId"))
@@ -150,16 +151,26 @@ class Controller(val clientId: Id, val app: Application) {
             .launchIn(eventHandlerScope)
     }
 
-    private fun sendMessage(chatId: Id, text: String, time: Long) {
+    private fun sendMessage(chatId: Id, text: String, time: Long, attachmentUrl: String) {
         val message: Message?
         try {
-            message = Message(randomId(), clientId, chatId, Timestamp(time), MessageStatus.SENDING, null, text)
+            message = Message(randomId(), clientId, chatId, Timestamp(time), MessageStatus.SENDING, attachmentUrl, text)
             storage.addNewMessage(message)
         } catch (e: Exception) {
             logger.error("$e, cause ${e.cause}")
             sendErrorToFront("Error creating message")
             return
         }
+
+        if (attachmentUrl != "null") {
+            val partnerId = storage.getChat(message.chatId).getOther(clientId)
+            runBlocking {
+                net.eventBus.post(
+                    NetworkEvent.SendFileToPeerEvent(clientId, partnerId, attachmentUrl)
+                )
+            }
+        }
+
         sendToNetwork(
             storage.getChat(message.chatId).getOther(clientId),
             MessengerEvent.NewMessageEvent(clientId, message)
@@ -225,7 +236,8 @@ class Controller(val clientId: Id, val app: Application) {
             sendToFront(
                 mapOf(
                     "request" to "receive_message",
-                    "message" to formatter.encodeToString(Message.serializer(), event.message)
+                    "message" to formatter.encodeToString(Message.serializer(), event.message),
+                    "attachmentUrl" to event.message.attachmentUrl.toString()
                 )
             )
             sendToNetwork(
