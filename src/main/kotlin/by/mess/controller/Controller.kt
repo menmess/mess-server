@@ -243,7 +243,7 @@ class Controller(val clientId: Id, val app: Application) {
         if (storage.isMessagePresent(event.messageId)) {
             storage.getMessage(event.messageId).status = event.newStatus
         }
-        // tbd: delivered messages?
+        // todo: delivered messages?
     }
 
     private fun handleIntroductionRequest(event: MessengerEvent.IntroductionRequest) {
@@ -276,7 +276,7 @@ class Controller(val clientId: Id, val app: Application) {
                 )
             )
         } else {
-            // tbd: sync chats
+            // todo: sync chats
         }
     }
 
@@ -286,7 +286,7 @@ class Controller(val clientId: Id, val app: Application) {
             sendToNetwork(event.producerId, MessengerEvent.NewChatEvent(clientId, chat))
         } catch (e: NoSuchElementException) {
             sendToNetwork(event.producerId, MessengerEvent.NoSuchChatEvent(clientId, event.producerId))
-            // tbd: sync chats
+            // todo: sync chats
         }
     }
 

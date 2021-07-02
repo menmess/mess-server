@@ -14,7 +14,11 @@ import io.ktor.client.request.*
 import io.ktor.features.origin
 import io.ktor.http.*
 import io.ktor.http.cio.websocket.*
-import io.ktor.routing.routing
+import io.ktor.http.content.*
+import io.ktor.request.*
+import io.ktor.response.*
+import io.ktor.routing.*
+import io.ktor.server.engine.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -42,7 +46,7 @@ class DistributedNetwork(
 
     init {
         with(application) {
-            backendPort = environment.config.property("ktor.deployment.port").getString().toInt()
+            backendPort = (environment as ApplicationEngineEnvironment).connectors.first().port
             logger.info("Backend port = $backendPort")
             routing {
                 webSocket("/network/{peerId}") {
