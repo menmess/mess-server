@@ -61,6 +61,7 @@ jobs:
       - run: ./gradlew test
 
 workflows:
+  version: 2
   build-and-test:
     jobs:
       - build
